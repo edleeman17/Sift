@@ -1,0 +1,40 @@
+services:
+  processor:
+    build: ./processor
+    ports:
+      - "8090:8090"
+    environment:
+      # Optional: URL to Pi's ancs-bridge health endpoint
+      # Leave empty to disable iPhone connection status in dashboard
+      - PI_HEALTH_URL=
+      # Optional: Ollama URL (defaults to http://ollama:11434)
+      - OLLAMA_URL=http://ollama:11434
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      # Optional: contacts.json for phone number lookup
+      # - ./contacts.json:/app/contacts.json:ro
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8090/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    depends_on:
+      - ollama
+
+  # Optional: Ollama for LLM classification and sentiment detection
+  # Remove this service if you don't need AI features
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  ollama_data:

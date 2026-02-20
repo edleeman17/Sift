@@ -1,0 +1,121 @@
+# Sift Configuration
+# Copy this file to config.yaml and customize for your setup
+
+port: 8090
+
+apps:
+  # Phone calls - always forward
+  phone:
+    default: send
+
+  # iMessage - only specific contacts
+  messages:
+    default: drop
+    rules:
+      - sender_contains: "John Doe"
+        action: send
+      - sender_contains: "Jane Doe"
+        action: send
+      - sender_contains: "Mom"
+        action: send
+
+  # Email - only security/auth notifications
+  mail:
+    default: drop
+    rules:
+      - body_contains: "verification code"
+        action: send
+      - body_contains: "security alert"
+        action: send
+      - body_contains: "sign in"
+        action: send
+
+  # WhatsApp - family and important contacts
+  whatsapp:
+    default: drop
+    rules:
+      - sender_contains: "Family Group"
+        action: send
+      - sender_contains: "Mom"
+        action: send
+      - sender_contains: "Partner"
+        action: send
+
+  # Signal - family only
+  signal:
+    default: drop
+    rules:
+      - sender_contains: "Mom"
+        action: send
+      - sender_contains: "Partner"
+        action: send
+
+  # Discord - only direct mentions
+  discord:
+    default: drop
+    rules:
+      - body_contains: "@yourusername"
+        action: send
+
+  # Slack - only direct mentions
+  slack:
+    default: drop
+    rules:
+      - body_contains: "@yourusername"
+        action: send
+
+  # Calendar - always forward
+  calendar:
+    default: send
+
+  # Banking - always forward transaction alerts
+  banking:
+    default: send
+
+  # Apps to always drop (noise)
+  instagram:
+    default: drop
+  twitter:
+    default: drop
+  facebook:
+    default: drop
+  tiktok:
+    default: drop
+  spotify:
+    default: drop
+
+global:
+  # What to do with apps not listed above
+  unknown_apps: drop
+
+  # Rate limiting to prevent notification spam
+  rate_limit:
+    max_per_hour: 50
+    cooldown_seconds: 30
+
+  # Sentiment detection - send urgent messages even from unknown senders
+  # Requires Ollama to be enabled
+  sentiment_detection:
+    enabled: false
+    apps:
+      - whatsapp
+      - messages
+      - signal
+
+sinks:
+  # Console logging (always enabled for debugging)
+  console:
+    enabled: true
+
+  # ntfy - self-hosted push notifications
+  # See: https://ntfy.sh
+  ntfy:
+    enabled: false
+    url: "http://localhost:8080/your-topic"
+
+  # Bark - iOS push notifications
+  # See: https://github.com/Finb/Bark
+  bark:
+    enabled: false
+    url: "http://localhost:8089"
+    device_key: "your-device-key"

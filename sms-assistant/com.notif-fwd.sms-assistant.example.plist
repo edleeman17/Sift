@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.notif-fwd.sms-assistant</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>/path/to/notification-forwarder/sms-assistant/assistant.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/path/to/notification-forwarder/sms-assistant</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>DUMBPHONE_NUMBER</key>
+        <string>+1234567890</string>
+        <key>OLLAMA_URL</key>
+        <string>http://localhost:11434</string>
+        <key>OLLAMA_MODEL</key>
+        <string>qwen2.5:7b</string>
+        <key>PI_HOST</key>
+        <string>pi@YOUR_PI_IP</string>
+        <key>OBSIDIAN_TODO</key>
+        <string>/path/to/obsidian/_todo.md</string>
+        <key>BARK_URL</key>
+        <string>http://YOUR_BARK_SERVER:8089</string>
+        <key>BARK_DEVICE_KEY</key>
+        <string>YOUR_BARK_DEVICE_KEY</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/sms-assistant.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/sms-assistant.log</string>
+</dict>
+</plist>

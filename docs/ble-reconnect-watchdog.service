@@ -1,0 +1,29 @@
+[Unit]
+Description=BLE Reconnection Watchdog for ancs4linux
+Documentation=https://github.com/pzmarzly/ancs4linux
+After=bluetooth.target ancs4linux-advertising.service ancs4linux-observer.service
+Wants=ancs4linux-advertising.service ancs4linux-observer.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/notification-forwarder/ble-reconnect-watchdog.py
+Restart=always
+RestartSec=10
+
+# Environment configuration - customize these
+Environment="CHECK_INTERVAL=10"
+Environment="ADVERTISING_REFRESH_INTERVAL=300"
+Environment="RECONNECT_DELAY=5"
+Environment="MAX_RECONNECT_ATTEMPTS=3"
+Environment="STACK_RESTART_THRESHOLD=600"
+Environment="ANCS_NAME=ancs4linux"
+Environment="LOG_LEVEL=INFO"
+
+# Optional: Set specific iPhone MAC to track
+# Environment="IPHONE_MAC=FC:31:5D:92:B4:3C"
+
+# Optional: Set Pi's Bluetooth MAC (auto-detected if not set)
+# Environment="BT_MAC=B8:27:EB:D1:4B:FD"
+
+[Install]
+WantedBy=default.target
