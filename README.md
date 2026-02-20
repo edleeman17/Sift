@@ -20,6 +20,8 @@ Forward iOS notifications to push services (Bark, ntfy, SMS, iMessage) with inte
 The result: you're unreachable for noise (group chat banter, social media, marketing) but reachable for emergencies. You check your smartphone on your terms, not when it demands attention.
 
 > **Heads up:** This is a personal project I'm sharing because others might find it useful. It works well for me, but Bluetooth can be finicky and notifications aren't guaranteed to arrive. Test thoroughly with your own setup before relying on it. Don't use this for anything life-critical without verifying it works reliably for you. I'm not responsible if you miss your nan's birthday message.
+>
+> Everything is configurable. The example rules are just how I use it - edit `config.yaml` to match your own contacts, apps, and priorities.
 
 ## Features
 
