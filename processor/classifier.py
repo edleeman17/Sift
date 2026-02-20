@@ -1,16 +1,22 @@
 import asyncio
+import os
 from dataclasses import dataclass
 from typing import Optional
 import httpx
 
 from models import Message
 
+# Ollama configuration from environment
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
+
 
 def log_llm(msg: str):
     print(f"[LLM] {msg}")
 
 
-async def analyze_feedback_with_ai(feedback_data: list[dict], ollama_url: str = "http://ollama:11434") -> dict:
+async def analyze_feedback_with_ai(feedback_data: list[dict], ollama_url: str = None) -> dict:
+    ollama_url = ollama_url or OLLAMA_URL
     """Use LLM to analyze feedback patterns and suggest rules."""
     if not feedback_data:
         return {"analysis": "No feedback data to analyze.", "suggestions": []}
@@ -113,9 +119,9 @@ class SentimentResult:
 class LLMClassifier:
     """Ollama-based notification classifier."""
 
-    def __init__(self, ollama_url: str = "http://ollama:11434", model: str = "qwen2.5:7b"):
-        self.ollama_url = ollama_url
-        self.model = model
+    def __init__(self, ollama_url: str = None, model: str = None):
+        self.ollama_url = ollama_url or OLLAMA_URL
+        self.model = model or OLLAMA_MODEL
         self._available: Optional[bool] = None
 
     async def check_available(self) -> bool:

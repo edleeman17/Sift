@@ -1,3 +1,4 @@
+import os
 import re
 import json
 from dataclasses import dataclass, field
@@ -30,7 +31,7 @@ PHONE_PATTERN = re.compile(
 
 # Load contacts mapping
 CONTACTS: dict[str, str] = {}
-_contacts_path = Path("/app/contacts.json")
+_contacts_path = Path(os.getenv("CONTACTS_PATH", "/app/contacts.json"))
 if _contacts_path.exists():
     try:
         CONTACTS = json.loads(_contacts_path.read_text())

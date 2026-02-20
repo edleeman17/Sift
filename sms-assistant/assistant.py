@@ -35,8 +35,8 @@ DEFAULT_LOCATION = os.getenv("DEFAULT_LOCATION", "London,UK")
 PI_HOST = os.getenv("PI_HOST", "")  # e.g., "pi@192.168.1.100" for remote reset
 OBSIDIAN_TODO = os.getenv("OBSIDIAN_TODO", os.path.expanduser("~/obsidian/_todo.md"))  # For TODO
 POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "10"))  # seconds
-MESSAGES_DB = Path.home() / "Library/Messages/chat.db"
-STATE_FILE = Path(os.getenv("STATE_FILE", "/tmp/sms-assistant-state.json"))
+MESSAGES_DB = Path(os.getenv("MESSAGES_DB", os.path.expanduser("~/Library/Messages/chat.db")))
+STATE_FILE = Path(os.getenv("STATE_FILE", os.path.expanduser("~/.sms-assistant/state.json")))
 
 # Command types
 COMMANDS = ["WEATHER", "SEARCH", "MESSAGES", "CHAT"]

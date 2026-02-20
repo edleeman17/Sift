@@ -21,9 +21,10 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
+import os
 
-# Load config
-CONFIG_PATH = Path("/app/config.yaml")
+# Load config from environment
+CONFIG_PATH = Path(os.getenv("CONFIG_PATH", "/app/config.yaml"))
 
 # Apps to hide from dashboard (sink echoes)
 HIDDEN_APPS = {"bark", "ntfy"}

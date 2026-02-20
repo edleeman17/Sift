@@ -1,3 +1,4 @@
+import os
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -5,7 +6,7 @@ from typing import Optional
 from models import Message
 
 
-DB_PATH = Path("/app/data/notifications.db")
+DB_PATH = Path(os.getenv("DB_PATH", "/app/data/notifications.db"))
 
 
 def init_db():

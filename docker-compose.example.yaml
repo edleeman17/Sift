@@ -3,12 +3,9 @@ services:
     build: ./processor
     ports:
       - "8090:8090"
-    environment:
-      # Optional: URL to Pi's ancs-bridge health endpoint
-      # Leave empty to disable iPhone connection status in dashboard
-      - PI_HEALTH_URL=
-      # Optional: Ollama URL (defaults to http://ollama:11434)
-      - OLLAMA_URL=http://ollama:11434
+    env_file:
+      # Copy processor/.env.example to processor/.env and customize
+      - ./processor/.env
     volumes:
       - ./config.yaml:/app/config.yaml:ro
       # Optional: contacts.json for phone number lookup

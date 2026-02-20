@@ -3,6 +3,10 @@ config.yaml
 contacts.json
 docker-compose.yaml
 
+# Environment files (use .env.example as templates)
+**/.env
+!**/.env.example
+
 # Plist files with local paths/secrets (use .example.plist templates)
 **/com.notif-fwd.*.plist
 !**/*.example.plist
