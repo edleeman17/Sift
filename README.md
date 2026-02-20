@@ -46,6 +46,88 @@ iPhone → (BLE) → Raspberry Pi → (HTTP) → Mac/Server → Sinks
 2. **ANCS Bridge** - Captures iOS notifications via Bluetooth on a Raspberry Pi
 3. **Ollama** (optional) - Local LLM for sentiment detection and AI classification
 
+## Installation
+
+### How It Works
+
+Your iPhone stays at home, connected via Bluetooth to a Raspberry Pi. When a notification arrives, the Pi forwards it to the processor which decides whether to send it to your dumbphone.
+
+**Outbound (notifications to you):**
+```
+iPhone → Pi (Bluetooth) → Processor → iMessage Gateway → SMS to Dumbphone
+```
+
+**Inbound (commands from you):**
+```
+Dumbphone → SMS → iMessage → SMS Assistant → Response via iMessage → SMS to Dumbphone
+```
+
+The Mac acts as an SMS gateway using iMessage - no Twilio account needed if you have a Mac that can send/receive SMS.
+
+### What You'll Need
+
+**Hardware:**
+- Raspberry Pi with Bluetooth (Zero 2 W, Pi 3/4/5)
+- iPhone (stays at home, within Bluetooth range of Pi)
+- Mac (for iMessage SMS gateway and SMS assistant)
+- Dumbphone with SMS (Nokia 8210 4G works well)
+
+**Software:**
+- Docker (for the processor)
+- Ollama (optional, for AI features)
+
+### Setup Steps
+
+#### 1. Raspberry Pi - Bluetooth Bridge
+
+Set up the Pi to capture notifications from your iPhone via Bluetooth.
+
+→ Follow [docs/ancs-bridge-setup.md](docs/ancs-bridge-setup.md)
+
+This involves:
+- Installing ancs4linux for BLE
+- Pairing with your iPhone
+- Running ancs-bridge to forward notifications to the processor
+
+#### 2. Processor - Filtering Engine
+
+Run the processor to filter notifications and decide what to forward.
+
+→ See [Quick Start](#quick-start) below
+
+#### 3. iMessage Gateway - Send SMS from Mac
+
+Run the gateway so the processor can send SMS via your Mac's iMessage.
+
+```bash
+cd imessage-gateway
+pip install -r requirements.txt
+python server.py  # Runs on port 8095
+```
+
+Configure as a sink in `config.yaml`:
+```yaml
+sinks:
+  imessage:
+    enabled: true
+    gateway_url: "http://localhost:8095"
+    recipient: "+44YOUR_DUMBPHONE_NUMBER"
+```
+
+#### 4. SMS Assistant - Respond to Commands (Optional)
+
+Run the assistant to process commands you text from your dumbphone.
+
+→ See [SMS Assistant](#sms-assistant) below
+
+### The Full Picture
+
+Once set up, you can:
+- Leave your iPhone at home and carry your dumbphone
+- Receive important notifications as SMS (filtered by your rules)
+- Text commands like `WEATHER`, `TODO`, `PING` to your iPhone number
+- Get responses via SMS on your dumbphone
+
 ## Quick Start
 
 ```bash
