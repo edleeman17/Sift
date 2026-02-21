@@ -446,6 +446,11 @@ make pull-model  # Pull Ollama model
 
 Contributions welcome! This started as a personal project but I'd love to see it help others.
 
+```bash
+# Install git hooks (checks for PII/secrets before commit)
+make setup-hooks
+```
+
 - **Bug reports** — Open an issue
 - **Feature ideas** — Open a discussion
 - **Pull requests** — Fork, branch, PR

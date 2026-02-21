@@ -1,0 +1,108 @@
+#!/bin/bash
+#
+# Pre-commit hook to detect PII and secrets
+# Blocks commits containing phone numbers, API keys, or personal data
+#
+
+set -e
+
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+# Get staged files (excluding deleted files)
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM)
+
+if [ -z "$STAGED_FILES" ]; then
+    exit 0
+fi
+
+ERRORS=0
+
+echo "Checking for PII and secrets..."
+
+# Patterns to detect
+# Real UK phone numbers (but allow placeholder +441234567890)
+UK_PHONE_PATTERN='\+44[0-9]{10}'
+PLACEHOLDER_PHONE='+441234567890'
+
+# API keys, tokens, secrets
+SECRET_PATTERNS=(
+    'api[_-]?key["\s]*[:=]["\s]*[a-zA-Z0-9]{16,}'
+    'auth[_-]?token["\s]*[:=]["\s]*[a-zA-Z0-9]{16,}'
+    'secret["\s]*[:=]["\s]*[a-zA-Z0-9]{16,}'
+    'password["\s]*[:=]["\s]*[^$][a-zA-Z0-9]{8,}'
+    'BARK_DEVICE_KEY.*[a-zA-Z0-9]{20}'
+    'account_sid.*AC[a-f0-9]{32}'
+    'auth_token.*[a-f0-9]{32}'
+)
+
+# Check each staged file
+for FILE in $STAGED_FILES; do
+    # Skip binary files and certain paths
+    if [[ "$FILE" == *.png ]] || [[ "$FILE" == *.jpg ]] || [[ "$FILE" == *.ico ]]; then
+        continue
+    fi
+
+    # Skip .env files (they should be gitignored anyway)
+    if [[ "$FILE" == *.env ]] || [[ "$FILE" == .env* ]]; then
+        echo -e "${YELLOW}Warning: .env file staged: $FILE${NC}"
+        ERRORS=1
+        continue
+    fi
+
+    # Get the staged content
+    CONTENT=$(git show ":$FILE" 2>/dev/null || true)
+
+    if [ -z "$CONTENT" ]; then
+        continue
+    fi
+
+    # Check for UK phone numbers (excluding placeholder)
+    PHONES=$(echo "$CONTENT" | grep -oE "$UK_PHONE_PATTERN" | grep -v "$PLACEHOLDER_PHONE" || true)
+    if [ -n "$PHONES" ]; then
+        echo -e "${RED}ERROR: Real phone number found in $FILE${NC}"
+        echo "$PHONES" | while read -r phone; do
+            echo "  → $phone"
+        done
+        ERRORS=1
+    fi
+
+    # Check for secret patterns
+    for PATTERN in "${SECRET_PATTERNS[@]}"; do
+        MATCHES=$(echo "$CONTENT" | grep -iE "$PATTERN" | grep -v "your_" | grep -v "YOUR_" | grep -v "xxxxx" | grep -v "example" || true)
+        if [ -n "$MATCHES" ]; then
+            # Filter out obvious placeholders
+            REAL_MATCHES=$(echo "$MATCHES" | grep -v "placeholder" | grep -v "PLACEHOLDER" || true)
+            if [ -n "$REAL_MATCHES" ]; then
+                echo -e "${RED}ERROR: Possible secret in $FILE${NC}"
+                echo "$REAL_MATCHES" | head -3 | while read -r line; do
+                    echo "  → ${line:0:80}..."
+                done
+                ERRORS=1
+            fi
+        fi
+    done
+
+    # Check for UK postcodes with full addresses (PII)
+    POSTCODES=$(echo "$CONTENT" | grep -oE '[0-9]+\s+[A-Za-z]+.*[A-Z]{1,2}[0-9]{1,2}\s*[0-9][A-Z]{2}' | grep -v "example" | grep -v "Example" || true)
+    if [ -n "$POSTCODES" ]; then
+        echo -e "${RED}ERROR: Address with postcode found in $FILE${NC}"
+        echo "$POSTCODES" | head -2 | while read -r addr; do
+            echo "  → ${addr:0:60}..."
+        done
+        ERRORS=1
+    fi
+done
+
+if [ $ERRORS -ne 0 ]; then
+    echo ""
+    echo -e "${RED}Commit blocked. Please remove PII/secrets before committing.${NC}"
+    echo "Use placeholder values like +441234567890 for phone numbers."
+    echo ""
+    echo "To bypass (use with caution): git commit --no-verify"
+    exit 1
+fi
+
+echo "✓ No PII or secrets detected"
+exit 0

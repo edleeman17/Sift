@@ -1,4 +1,4 @@
-.PHONY: build up down logs test health pull-model
+.PHONY: build up down logs test health pull-model setup-hooks
 
 build:
 	docker compose build
@@ -38,3 +38,8 @@ restart:
 
 rebuild:
 	docker compose up -d --build processor
+
+setup-hooks:
+	cp hooks/pre-commit .git/hooks/pre-commit
+	chmod +x .git/hooks/pre-commit
+	@echo "Git hooks installed"
