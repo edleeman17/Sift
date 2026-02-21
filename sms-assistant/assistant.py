@@ -387,6 +387,7 @@ CONTACTS_FILE = Path(os.getenv("CONTACTS_FILE", os.path.expanduser("~/docker-pro
 DATA_FILE = Path(os.getenv("DATA_FILE", os.path.expanduser("~/.sms-assistant/data.json")))
 DEFAULT_LAT = os.getenv("DEFAULT_LAT", "51.5074")  # Set via env var
 DEFAULT_LON = os.getenv("DEFAULT_LON", "-0.1278")
+HOME_ADDRESS = os.getenv("HOME_ADDRESS", "")
 
 
 async def handle_locate() -> str:
@@ -759,6 +760,11 @@ async def handle_contact(query: str) -> str:
 
 async def handle_nav(from_place: str, to_place: str) -> str:
     """Get directions as prose using OSRM + LLM."""
+    # Replace "home" with configured home address
+    if from_place.lower() == "home" and HOME_ADDRESS:
+        from_place = HOME_ADDRESS
+    if to_place.lower() == "home" and HOME_ADDRESS:
+        to_place = HOME_ADDRESS
     log.info(f"NAV from '{from_place}' to '{to_place}'")
 
     async with httpx.AsyncClient(timeout=15.0) as client:

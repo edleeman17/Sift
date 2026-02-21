@@ -27,6 +27,14 @@
         <string>http://YOUR_BARK_SERVER:8089</string>
         <key>BARK_DEVICE_KEY</key>
         <string>YOUR_BARK_DEVICE_KEY</string>
+        <key>DEFAULT_LOCATION</key>
+        <string>London,UK</string>
+        <key>DEFAULT_LAT</key>
+        <string>51.5074</string>
+        <key>DEFAULT_LON</key>
+        <string>-0.1278</string>
+        <key>HOME_ADDRESS</key>
+        <string>YOUR_HOME_ADDRESS</string>
     </dict>
     <key>RunAtLoad</key>
     <true/>
