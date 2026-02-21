@@ -108,6 +108,10 @@ echo ""
 prompt OBSIDIAN_TODO "Obsidian TODO file path" "$HOME/obsidian/_todo.md"
 prompt CONTACTS_FILE "Contacts JSON file path" "$SCRIPT_DIR/contacts.json"
 
+# Expand ~ in paths for plist (launchd doesn't expand ~)
+OBSIDIAN_TODO_EXPANDED="${OBSIDIAN_TODO/#\~/$HOME}"
+CONTACTS_FILE_EXPANDED="${CONTACTS_FILE/#\~/$HOME}"
+
 echo ""
 echo -e "${YELLOW}Generating configuration...${NC}"
 echo ""
@@ -245,13 +249,13 @@ cat > "$HOME/Library/LaunchAgents/com.notif-fwd.sms-assistant.plist" << EOF
         <key>PI_HOST</key>
         <string>$PI_HOST</string>
         <key>OBSIDIAN_TODO</key>
-        <string>$OBSIDIAN_TODO</string>
+        <string>$OBSIDIAN_TODO_EXPANDED</string>
         <key>MESSAGES_DB</key>
         <string>$HOME/Library/Messages/chat.db</string>
         <key>STATE_FILE</key>
         <string>$HOME/.sms-assistant/state.json</string>
         <key>CONTACTS_FILE</key>
-        <string>$CONTACTS_FILE</string>
+        <string>$CONTACTS_FILE_EXPANDED</string>
         <key>DATA_FILE</key>
         <string>$HOME/.sms-assistant/data.json</string>
         <key>DEFAULT_LOCATION</key>
@@ -334,26 +338,26 @@ echo ""
 echo "Next steps:"
 echo ""
 echo "  1. Start the processor:"
-echo "     ${BLUE}make up${NC}"
+echo -e "     ${BLUE}make up${NC}"
 echo ""
 echo "  2. Start macOS services:"
-echo "     ${BLUE}launchctl load ~/Library/LaunchAgents/com.notif-fwd.sms-assistant.plist${NC}"
-echo "     ${BLUE}launchctl load ~/Library/LaunchAgents/com.notif-fwd.imessage-gateway.plist${NC}"
+echo -e "     ${BLUE}launchctl load ~/Library/LaunchAgents/com.notif-fwd.sms-assistant.plist${NC}"
+echo -e "     ${BLUE}launchctl load ~/Library/LaunchAgents/com.notif-fwd.imessage-gateway.plist${NC}"
 echo ""
 echo "  3. Install Python dependencies:"
-echo "     ${BLUE}pip install -r sms-assistant/requirements.txt${NC}"
-echo "     ${BLUE}pip install -r imessage-gateway/requirements.txt${NC}"
+echo -e "     ${BLUE}pip install -r sms-assistant/requirements.txt${NC}"
+echo -e "     ${BLUE}pip install -r imessage-gateway/requirements.txt${NC}"
 echo ""
 
 if [ "$ENABLE_AI" = true ]; then
     echo "  4. Pull Ollama model:"
-    echo "     ${BLUE}ollama pull $OLLAMA_MODEL${NC}"
+    echo -e "     ${BLUE}ollama pull $OLLAMA_MODEL${NC}"
     echo ""
 fi
 
 echo "  5. Set up Raspberry Pi:"
-echo "     ${BLUE}See docs/ancs-bridge-setup.md${NC}"
+echo -e "     ${BLUE}See docs/ancs-bridge-setup.md${NC}"
 echo ""
 echo "  6. Test:"
-echo "     ${BLUE}make test${NC}"
+echo -e "     ${BLUE}make test${NC}"
 echo ""
