@@ -75,10 +75,10 @@ prompt_yn ENABLE_AI "Enable AI features (requires Ollama)?" "y"
 
 if [ "$ENABLE_AI" = true ]; then
     prompt OLLAMA_URL "Ollama URL" "http://localhost:11434"
-    prompt OLLAMA_MODEL "Ollama model" "qwen2.5:7b"
+    prompt OLLAMA_MODEL "Ollama model" "qwen2.5:1.5b"
 else
     OLLAMA_URL="http://localhost:11434"
-    OLLAMA_MODEL="qwen2.5:7b"
+    OLLAMA_MODEL="qwen2.5:1.5b"
 fi
 
 echo ""

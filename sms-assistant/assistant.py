@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 # Configuration
 DUMBPHONE_NUMBER = os.getenv("DUMBPHONE_NUMBER", "")  # e.g., "+441234567890"
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:1.5b")
 DEFAULT_LOCATION = os.getenv("DEFAULT_LOCATION", "London,UK")
 PI_HOST = os.getenv("PI_HOST", "")  # e.g., "pi@192.168.1.100" for remote reset
 OBSIDIAN_TODO = os.getenv("OBSIDIAN_TODO", os.path.expanduser("~/obsidian/_todo.md"))  # For TODO

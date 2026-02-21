@@ -18,7 +18,7 @@
         <key>OLLAMA_URL</key>
         <string>http://localhost:11434</string>
         <key>OLLAMA_MODEL</key>
-        <string>qwen2.5:7b</string>
+        <string>qwen2.5:1.5b</string>
         <key>PI_HOST</key>
         <string>pi@YOUR_PI_IP</string>
         <key>OBSIDIAN_TODO</key>
