@@ -817,29 +817,26 @@ async def handle_nav(from_place: str, to_place: str) -> str:
                 distance = step.get("distance", 0)
 
                 if instruction and maneuver_type not in ("arrive", "depart"):
-                    dist_str = f"{int(distance)}m" if distance < 1000 else f"{distance/1000:.1f}km"
-                    instructions.append(f"{maneuver_type} {modifier} onto {instruction} ({dist_str})")
+                    step_miles = distance / 1609.34
+                    step_dist = f"{step_miles:.1f}mi" if step_miles >= 0.1 else f"{int(distance * 3.281)}ft"
+                    instructions.append(f"{maneuver_type} {modifier} onto {instruction} ({step_dist})")
 
             # Total distance and duration
             total_dist = route["distance"]
             total_time = route["duration"]
-            dist_str = f"{total_dist/1000:.1f}km" if total_dist >= 1000 else f"{int(total_dist)}m"
-            time_str = f"{int(total_time/60)} min"
+            miles = total_dist / 1609.34
+            dist_str = f"{miles:.1f}mi" if miles >= 0.5 else f"{int(total_dist * 3.281)}ft"
+            time_str = f"{int(total_time/60)}min"
 
-            # Convert to prose with LLM
+            # Convert to prose with LLM - terse for SMS
             raw_directions = "\n".join(instructions)
-            prompt = f"""Convert these turn-by-turn directions into clear, SMS-friendly prose.
-Use road names and landmarks where possible. Format as numbered steps.
-Keep it concise but clear. Use "follow signs to X" style where appropriate.
+            prompt = f"""Write VERY brief SMS directions. Max 5 steps. Use road names only. No filler words.
+Example style: "1. R onto A3 2. Follow 2mi 3. Exit to M25 4. L at lights 5. Destination on R"
 
-From: {from_place}
-To: {to_place}
-Total: {dist_str}, {time_str}
-
-Raw directions:
+Route: {dist_str}, {time_str}
 {raw_directions}
 
-Write clear driving directions:"""
+Brief directions:"""
 
             prose = await ollama_generate(prompt)
             if prose and "unavailable" not in prose.lower():
