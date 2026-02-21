@@ -14,7 +14,7 @@
     <key>EnvironmentVariables</key>
     <dict>
         <key>DUMBPHONE_NUMBER</key>
-        <string>+1234567890</string>
+        <string>+441234567890</string>
         <key>OLLAMA_URL</key>
         <string>http://localhost:11434</string>
         <key>OLLAMA_MODEL</key>
