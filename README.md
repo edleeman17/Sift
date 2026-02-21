@@ -69,13 +69,20 @@ Sift bridges the gap by capturing every notification from your iPhone via Blueto
 ```bash
 git clone https://github.com/edleeman17/sift.git
 cd sift
-cp config.example.yaml config.yaml
-cp docker-compose.example.yaml docker-compose.yaml
 
-# Edit config.yaml with your rules and credentials
+# Interactive setup - configures everything
+./setup.sh
 
-docker compose up -d
+# Start the processor
+make up
 ```
+
+The setup script will:
+- Ask for your dumbphone number, location, and preferences
+- Configure notification sinks (iMessage, Bark, ntfy)
+- Set up AI features (optional, requires Ollama)
+- Install macOS services (SMS Assistant, iMessage Gateway)
+- Create all config files
 
 Dashboard: **http://localhost:8090**
 
