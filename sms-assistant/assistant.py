@@ -830,17 +830,12 @@ async def handle_nav(from_place: str, to_place: str) -> str:
 
             # Convert to prose with LLM - terse for SMS
             raw_directions = "\n".join(instructions)
-            prompt = f"""Rewrite as numbered steps with turn direction + road name.
-Format example:
-1. turn R onto Main St
-2. turn L onto High St
-3. straight onto A1
-4. exit roundabout onto M1
-Max 6 steps. No distances. No filler words.
+            prompt = f"""Condense to key turns only. Use exact road names. Skip minor roads. No distances.
+Example output: "R onto Main St, L onto High St, straight A1, exit M1"
 
 {raw_directions}
 
-Directions:"""
+Short version:"""
 
             prose = await ollama_generate(prompt)
             if prose and "unavailable" not in prose.lower():
