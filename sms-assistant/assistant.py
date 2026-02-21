@@ -849,7 +849,7 @@ Write clear driving directions:"""
                 compact = []
                 for step in instructions[:6]:
                     # Shorten: "turn right onto Main Road (1.2km)" -> "R Main Road 1.2km"
-                    step = step.replace("turn right", "R").replace("turn left", "L")
+                    step = step.replace("turn right", "turn R").replace("turn left", "turn L")
                     step = step.replace("merge slight right", "merge R")
                     step = step.replace("merge slight left", "merge L")
                     step = step.replace("straight onto", "->")
