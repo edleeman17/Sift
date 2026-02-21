@@ -830,13 +830,17 @@ async def handle_nav(from_place: str, to_place: str) -> str:
 
             # Convert to prose with LLM - terse for SMS
             raw_directions = "\n".join(instructions)
-            prompt = f"""Write VERY brief SMS directions. Max 5 steps. Use road names only. No filler words.
-Example style: "1. R onto A3 2. Follow 2mi 3. Exit to M25 4. L at lights 5. Destination on R"
+            prompt = f"""Rewrite as numbered steps with turn direction + road name.
+Format example:
+1. turn R onto Main St
+2. turn L onto High St
+3. straight onto A1
+4. exit roundabout onto M1
+Max 6 steps. No distances. No filler words.
 
-Route: {dist_str}, {time_str}
 {raw_directions}
 
-Brief directions:"""
+Directions:"""
 
             prose = await ollama_generate(prompt)
             if prose and "unavailable" not in prose.lower():
