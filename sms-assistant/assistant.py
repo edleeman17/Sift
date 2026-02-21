@@ -829,7 +829,7 @@ async def handle_nav(from_place: str, to_place: str) -> str:
             time_str = f"{int(total_time/60)}min"
 
             # Convert to prose with LLM - terse for SMS
-            raw_directions = "\n".join(instructions)
+            raw_directions = "\n".join(instructions).replace("rotary", "roundabout")
             prompt = f"""Condense to key turns only. Use exact road names. Skip minor roads. No distances.
 Example output: "R onto Main St, L onto High St, straight A1, exit M1"
 
@@ -851,6 +851,7 @@ Short version:"""
                     step = step.replace("straight onto", "->")
                     step = step.replace("slight right onto", "R")
                     step = step.replace("slight left onto", "L")
+                    step = step.replace("rotary", "rbt").replace("exit rbt", "exit")
                     step = step.replace(" onto ", " ")
                     step = step.replace("(", "").replace(")", "")
                     compact.append(step)
