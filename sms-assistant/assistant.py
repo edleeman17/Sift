@@ -843,13 +843,25 @@ Write clear driving directions:"""
 
             prose = await ollama_generate(prompt)
             if prose and "unavailable" not in prose.lower():
-                return f"{from_place} to {to_place} ({dist_str}, ~{time_str}):\n{prose}"
+                return f"{dist_str}, ~{time_str}:\n{prose}"
             else:
-                # Fallback: return simplified raw directions if LLM fails
-                simplified = "\n".join(instructions[:8])  # First 8 steps
-                if len(instructions) > 8:
-                    simplified += f"\n... +{len(instructions) - 8} more steps"
-                return f"{from_place} to {to_place} ({dist_str}, ~{time_str}):\n{simplified}"
+                # Fallback: compact raw directions for small screens
+                compact = []
+                for step in instructions[:6]:
+                    # Shorten: "turn right onto Main Road (1.2km)" -> "R Main Road 1.2km"
+                    step = step.replace("turn right", "R").replace("turn left", "L")
+                    step = step.replace("merge slight right", "merge R")
+                    step = step.replace("merge slight left", "merge L")
+                    step = step.replace("straight onto", "->")
+                    step = step.replace("slight right onto", "R")
+                    step = step.replace("slight left onto", "L")
+                    step = step.replace(" onto ", " ")
+                    step = step.replace("(", "").replace(")", "")
+                    compact.append(step)
+                result = f"{dist_str} ~{time_str}\n" + "\n".join(compact)
+                if len(instructions) > 6:
+                    result += f"\n+{len(instructions) - 6} more"
+                return result
 
         except Exception as e:
             log.error(f"NAV error: {e}")
