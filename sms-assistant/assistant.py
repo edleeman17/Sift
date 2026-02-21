@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 import httpx
 
@@ -160,7 +160,7 @@ async def ollama_generate(prompt: str, system: str = "") -> str:
         payload["system"] = system
 
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=180.0) as client:
             resp = await client.post(f"{OLLAMA_URL}/api/generate", json=payload)
             if resp.status_code == 200:
                 return resp.json().get("response", "").strip()
@@ -769,7 +769,7 @@ async def handle_nav(from_place: str, to_place: str) -> str:
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         # Geocode both places using Nominatim
-        async def geocode(place: str) -> tuple[float, float] | None:
+        async def geocode(place: str) -> Optional[Tuple[float, float]]:
             resp = await client.get(
                 "https://nominatim.openstreetmap.org/search",
                 params={"q": place, "format": "json", "limit": 1},
@@ -792,7 +792,7 @@ async def handle_nav(from_place: str, to_place: str) -> str:
             # Get route from OSRM
             coords = f"{from_coords[0]},{from_coords[1]};{to_coords[0]},{to_coords[1]}"
             resp = await client.get(
-                f"https://router.project-osrm.org/route/v1/driving/{coords}",
+                f"http://router.project-osrm.org/route/v1/driving/{coords}",
                 params={"steps": "true", "overview": "false"}
             )
 
@@ -1544,6 +1544,24 @@ def get_ack_message(text: str) -> Optional[str]:
     return "Thinking..."
 
 
+async def preload_model():
+    """Preload the Ollama model into memory."""
+    log.info(f"Preloading Ollama model: {OLLAMA_MODEL}...")
+    try:
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            # Send a simple request to load the model
+            resp = await client.post(
+                f"{OLLAMA_URL}/api/generate",
+                json={"model": OLLAMA_MODEL, "prompt": "hi", "stream": False}
+            )
+            if resp.status_code == 200:
+                log.info("Model preloaded successfully")
+            else:
+                log.warning(f"Model preload failed: {resp.status_code}")
+    except Exception as e:
+        log.warning(f"Model preload failed: {e}")
+
+
 async def main():
     """Main polling loop."""
     if not DUMBPHONE_NUMBER:
@@ -1555,6 +1573,9 @@ async def main():
     log.info(f"Monitoring for messages from: {DUMBPHONE_NUMBER}")
     log.info(f"Using Ollama model: {OLLAMA_MODEL}")
     log.info(f"Poll interval: {POLL_INTERVAL}s")
+
+    # Preload model at startup
+    await preload_model()
 
     state = load_state()
     log.info(f"Starting from message ROWID: {state['last_rowid']}")
