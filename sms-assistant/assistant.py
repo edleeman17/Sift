@@ -842,7 +842,14 @@ Raw directions:
 Write clear driving directions:"""
 
             prose = await ollama_generate(prompt)
-            return f"{from_place} to {to_place} ({dist_str}, ~{time_str}):\n{prose}"
+            if prose and "unavailable" not in prose.lower():
+                return f"{from_place} to {to_place} ({dist_str}, ~{time_str}):\n{prose}"
+            else:
+                # Fallback: return simplified raw directions if LLM fails
+                simplified = "\n".join(instructions[:8])  # First 8 steps
+                if len(instructions) > 8:
+                    simplified += f"\n... +{len(instructions) - 8} more steps"
+                return f"{from_place} to {to_place} ({dist_str}, ~{time_str}):\n{simplified}"
 
         except Exception as e:
             log.error(f"NAV error: {e}")
