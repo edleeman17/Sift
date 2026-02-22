@@ -1,6 +1,9 @@
 import asyncio
 import os
+import time
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 from typing import Optional
 import httpx
 
@@ -10,9 +13,55 @@ from models import Message
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
 
+# LLM log file for detailed query logging
+LLM_LOG_FILE = Path("/app/data/llm.log")
+
 
 def log_llm(msg: str):
+    """Log to stdout for basic logging."""
     print(f"[LLM] {msg}")
+
+
+def log_llm_query(query_type: str, prompt: str, response: str, duration_ms: int, model: str = None):
+    """Log detailed LLM query info to file for status page display."""
+    try:
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        model = model or OLLAMA_MODEL
+
+        # Truncate for log display but keep enough context
+        prompt_preview = prompt.replace('\n', ' ')[:200]
+        response_preview = response.replace('\n', ' ')[:200]
+
+        log_entry = (
+            f"{timestamp} | {query_type} | {model} | {duration_ms}ms\n"
+            f"  PROMPT: {prompt_preview}\n"
+            f"  RESPONSE: {response_preview}\n"
+        )
+
+        # Append to log file
+        with open(LLM_LOG_FILE, "a") as f:
+            f.write(log_entry)
+
+        # Keep log file from growing too large (keep last 100 entries)
+        _trim_log_file()
+    except Exception as e:
+        print(f"[LLM] Log write error: {e}")
+
+
+def _trim_log_file(max_entries: int = 100):
+    """Keep log file from growing too large."""
+    try:
+        if not LLM_LOG_FILE.exists():
+            return
+        lines = LLM_LOG_FILE.read_text().split('\n')
+        # Each entry is 3 lines (header + prompt + response)
+        entry_count = sum(1 for line in lines if ' | ' in line and 'ms' in line)
+        if entry_count > max_entries:
+            # Keep last max_entries entries (3 lines each)
+            keep_lines = max_entries * 3
+            LLM_LOG_FILE.write_text('\n'.join(lines[-keep_lines:]))
+    except Exception:
+        pass
 
 
 async def analyze_feedback_with_ai(feedback_data: list[dict], ollama_url: str = None) -> dict:
@@ -69,9 +118,9 @@ Available matchers: sender_contains, body_contains, sender_not_contains, body_no
 IMPORTANT: Generate ONE rule per notification. Use exact text from the notifications. Be specific."""
 
     log_llm(f"AI prompt: bad_sends={len(bad_sends)}, bad_drops={len(bad_drops)}")
-    log_llm(f"Prompt length: {len(prompt)} chars")
 
     try:
+        start_time = time.time()
         async with httpx.AsyncClient(timeout=300.0) as client:  # 5 min for slow models
             resp = await client.post(
                 f"{ollama_url}/api/generate",
@@ -84,8 +133,10 @@ IMPORTANT: Generate ONE rule per notification. Use exact text from the notificat
             )
             resp.raise_for_status()
             result = resp.json()
+            duration_ms = int((time.time() - start_time) * 1000)
             analysis = result.get("response", "No response from LLM")
-            log_llm(f"AI insights generated: {len(analysis)} chars")
+            log_llm(f"AI insights generated: {len(analysis)} chars in {duration_ms}ms")
+            log_llm_query("feedback_analysis", prompt, analysis, duration_ms, "qwen2.5:7b")
             return {
                 "analysis": analysis,
                 "stats": {
@@ -165,6 +216,7 @@ Answer with a single word: SEND or DROP"""
             prompt = self._build_prompt(msg)
 
         try:
+            start_time = time.time()
             async with httpx.AsyncClient(timeout=300.0) as client:  # 5 min for slow models
                 resp = await client.post(
                     f"{self.ollama_url}/api/generate",
@@ -177,11 +229,13 @@ Answer with a single word: SEND or DROP"""
                 )
                 resp.raise_for_status()
                 result = resp.json()
+                duration_ms = int((time.time() - start_time) * 1000)
                 raw_response = result.get("response", "")
-                log_llm(f"Raw response: {raw_response[:100]}")
+                log_llm(f"Response ({duration_ms}ms): {raw_response[:100]}")
                 classification = self._parse_response(raw_response)
                 action = "SEND" if classification.should_send else "DROP"
                 log_llm(f"Decision: {action} - {classification.reason}")
+                log_llm_query("classify", prompt, f"{action}: {raw_response}", duration_ms, self.model)
                 return classification
         except Exception as e:
             log_llm(f"Error: {type(e).__name__}: {e}, defaulting to DROP (6p rule)")
@@ -272,6 +326,7 @@ Message from {msg.title}:
 Answer NORMAL or URGENT (almost always NORMAL):"""
 
         try:
+            start_time = time.time()
             async with httpx.AsyncClient(timeout=60.0) as client:
                 resp = await client.post(
                     f"{self.ollama_url}/api/generate",
@@ -284,14 +339,16 @@ Answer NORMAL or URGENT (almost always NORMAL):"""
                 )
                 resp.raise_for_status()
                 result = resp.json()
+                duration_ms = int((time.time() - start_time) * 1000)
                 raw = result.get("response", "").strip()
-                log_llm(f"Sentiment response: {raw[:100]}")
+                log_llm(f"Sentiment response ({duration_ms}ms): {raw[:100]}")
 
                 first_word = raw.split()[0].upper() if raw else "NORMAL"
                 is_urgent = first_word == "URGENT"
                 sentiment = "urgent" if is_urgent else "normal"
                 reason = raw.split("\n")[0] if raw else "No response"
 
+                log_llm_query("sentiment", prompt, f"{sentiment}: {raw}", duration_ms, self.model)
                 return SentimentResult(
                     is_urgent=is_urgent,
                     sentiment=sentiment,
@@ -407,6 +464,7 @@ Example format:
 Your answers:"""
 
         try:
+            start_time = time.time()
             async with httpx.AsyncClient(timeout=120.0) as client:
                 resp = await client.post(
                     f"{self.classifier.ollama_url}/api/generate",
@@ -419,8 +477,10 @@ Your answers:"""
                 )
                 resp.raise_for_status()
                 result = resp.json()
+                duration_ms = int((time.time() - start_time) * 1000)
                 raw = result.get("response", "").strip()
-                log_llm(f"Batch sentiment response: {raw[:200]}")
+                log_llm(f"Batch sentiment response ({duration_ms}ms): {raw[:200]}")
+                log_llm_query(f"batch_sentiment_{len(messages)}", prompt, raw, duration_ms, self.classifier.model)
 
                 return self._parse_batch_response(raw, len(messages))
         except Exception as e:

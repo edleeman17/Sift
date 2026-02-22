@@ -38,6 +38,7 @@ OBSIDIAN_TODO = os.getenv("OBSIDIAN_TODO", os.path.expanduser("~/obsidian/_todo.
 POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "10"))  # seconds
 MESSAGES_DB = Path(os.getenv("MESSAGES_DB", os.path.expanduser("~/Library/Messages/chat.db")))
 STATE_FILE = Path(os.getenv("STATE_FILE", os.path.expanduser("~/.sms-assistant/state.json")))
+HEARTBEAT_FILE = Path(os.getenv("HEARTBEAT_FILE", os.path.expanduser("~/.sms-assistant/heartbeat")))
 SUPPORTS_EMOJI = os.getenv("SUPPORTS_EMOJI", "false").lower() in ("true", "1", "yes")
 
 # Command types
@@ -50,6 +51,15 @@ class IncomingMessage:
     text: str
     timestamp: datetime
     sender: str
+
+
+def update_heartbeat():
+    """Update heartbeat file to show service is running."""
+    try:
+        HEARTBEAT_FILE.parent.mkdir(parents=True, exist_ok=True)
+        HEARTBEAT_FILE.write_text(datetime.now().isoformat())
+    except Exception:
+        pass  # Non-critical
 
 
 def load_state() -> dict:
@@ -1664,6 +1674,7 @@ async def main():
 
     while True:
         try:
+            update_heartbeat()  # Show we're alive
             messages = get_new_messages(state["last_rowid"])
 
             for msg in messages:

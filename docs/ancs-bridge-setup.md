@@ -223,8 +223,8 @@ def normalize_app(app_id: str) -> str:
     return APP_NAMES.get(app_id, app_id.split(".")[-1].lower())
 
 
-def check_bluetooth_connected() -> bool:
-    """Check if any paired iPhone is connected via bluetoothctl."""
+def check_bluetooth_connected() -> tuple[bool, str | None]:
+    """Check if any paired iPhone is connected via bluetoothctl. Returns (connected, mac)."""
     try:
         result = subprocess.run(
             ["bluetoothctl", "devices"],
@@ -240,11 +240,32 @@ def check_bluetooth_connected() -> bool:
                         capture_output=True, text=True, timeout=5
                     )
                     if "Connected: yes" in info.stdout:
-                        return True
-        return False
+                        return True, mac
+        return False, None
     except Exception as e:
         log.warning(f"Failed to check bluetooth: {e}")
-        return False
+        return False, None
+
+
+def get_battery_level(mac: str) -> int | None:
+    """Read battery level from iPhone via BlueZ Battery1 interface."""
+    try:
+        # BlueZ exposes battery via org.bluez.Battery1 interface
+        device_path = f"/org/bluez/hci0/dev_{mac.replace(':', '_')}"
+        result = subprocess.run(
+            ["busctl", "get-property", "org.bluez", device_path,
+             "org.bluez.Battery1", "Percentage"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0 and result.stdout:
+            # Output format: "y 85" (y = byte type, 85 = value)
+            parts = result.stdout.strip().split()
+            if len(parts) >= 2:
+                return int(parts[1])
+        return None
+    except Exception as e:
+        log.debug(f"Failed to read battery: {e}")
+        return None
 
 
 def restart_bluetooth_stack():
@@ -290,7 +311,8 @@ async def connection_watchdog():
 
     while True:
         await asyncio.sleep(60)
-        if check_bluetooth_connected():
+        connected, _ = check_bluetooth_connected()
+        if connected:
             last_connected_time = time.time()
         else:
             if time.time() - last_connected_time > DISCONNECT_THRESHOLD:
@@ -306,7 +328,8 @@ async def staleness_watchdog():
 
     while True:
         await asyncio.sleep(60)
-        if last_activity > 0 and check_bluetooth_connected():
+        connected, _ = check_bluetooth_connected()
+        if last_activity > 0 and connected:
             if time.time() - last_activity > STALE_THRESHOLD:
                 log.warning("ANCS stale - restarting observer...")
                 try:
@@ -324,7 +347,7 @@ async def health_server():
     from aiohttp import web
 
     async def health_handler(request):
-        connected = check_bluetooth_connected()
+        connected, iphone_mac = check_bluetooth_connected()
         idle = time.time() - last_activity if last_activity > 0 else None
 
         if not connected:
@@ -335,10 +358,15 @@ async def health_server():
                 "disconnected_for": int(time.time() - last_connected_time)
             }, status=503)
 
+        # Try to read battery level
+        battery = get_battery_level(iphone_mac) if iphone_mac else None
+
         return web.json_response({
             "status": "healthy",
             "phone_connected": True,
-            "last_activity_ago": int(idle) if idle else None
+            "last_activity_ago": int(idle) if idle else None,
+            "battery": battery,
+            "active_iphone": iphone_mac
         })
 
     app = web.Application()

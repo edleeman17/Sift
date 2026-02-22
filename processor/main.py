@@ -12,7 +12,7 @@ from models import NotificationRequest, NotificationResponse, Message
 from rules import RuleEngine, Action
 from rate_limiter import RateLimiter
 from classifier import LLMClassifier, BatchedSentimentAnalyzer, analyze_feedback_with_ai
-from sinks import ConsoleSink, NtfySink, BarkSink, TwilioSink, IMessageSink
+from sinks import load_sinks_from_config
 import db
 
 logging.basicConfig(
@@ -51,42 +51,9 @@ async def lifespan(app: FastAPI):
         max_batch_size=sentiment_config.get("max_batch_size", 30),
     )
 
-    # Initialize sinks from config
+    # Initialize sinks from config using the registry
     sinks_config = app.state.rules.config.get("sinks", {})
-    app.state.sinks = []
-
-    console_conf = sinks_config.get("console", {})
-    if console_conf.get("enabled", True):
-        app.state.sinks.append(ConsoleSink())
-
-    ntfy_conf = sinks_config.get("ntfy", {})
-    if ntfy_conf.get("enabled", False):
-        app.state.sinks.append(NtfySink(
-            url=ntfy_conf.get("url", "")
-        ))
-
-    bark_conf = sinks_config.get("bark", {})
-    if bark_conf.get("enabled", False):
-        app.state.sinks.append(BarkSink(
-            url=bark_conf.get("url", ""),
-            device_key=bark_conf.get("device_key", "")
-        ))
-
-    twilio_conf = sinks_config.get("twilio", {})
-    if twilio_conf.get("enabled", False):
-        app.state.sinks.append(TwilioSink(
-            account_sid=twilio_conf.get("account_sid", ""),
-            auth_token=twilio_conf.get("auth_token", ""),
-            from_number=twilio_conf.get("from_number", ""),
-            to_number=twilio_conf.get("to_number", ""),
-        ))
-
-    imessage_conf = sinks_config.get("imessage", {})
-    if imessage_conf.get("enabled", False):
-        app.state.sinks.append(IMessageSink(
-            gateway_url=imessage_conf.get("gateway_url", "http://host.docker.internal:8095"),
-            recipient=imessage_conf.get("recipient", ""),
-        ))
+    app.state.sinks = load_sinks_from_config(sinks_config)
 
     yield
     # Shutdown - nothing to clean up
