@@ -564,6 +564,8 @@ async def handle_reset() -> str:
         sudo hciconfig hci0 up
         sleep 2
         systemctl --user start ancs4linux-advertising
+        sleep 3
+        /usr/local/bin/ancs4linux-ctl enable-advertising --hci-address B8:27:EB:D1:4B:FD --name ancs4linux
         sleep 2
         systemctl --user start ancs4linux-observer
         sleep 2
