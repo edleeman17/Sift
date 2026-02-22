@@ -1464,6 +1464,32 @@ Or just ask anything"""
         return await handle_chat(text)
 
 
+def format_for_sms(message: str) -> str:
+    """Format message for dumbphone SMS display.
+
+    - Replaces newlines with ' | ' separators
+    - Cleans up list formatting
+    - Makes output more compact
+    """
+    lines = message.split('\n')
+    formatted_lines = []
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        # Clean up bullet points: "- item" -> "item"
+        if line.startswith('- '):
+            line = line[2:]
+        # Clean up checkbox style: "- [ ] item" -> "item"
+        if line.startswith('[ ] '):
+            line = line[4:]
+        formatted_lines.append(line)
+
+    # Join with separator
+    return ' | '.join(formatted_lines)
+
+
 def split_message(message: str, max_len: int = 160) -> list[str]:
     """Split a long message into SMS-sized chunks, breaking at word boundaries."""
     if len(message) <= max_len:
@@ -1500,6 +1526,8 @@ def send_sms_reply(recipient: str, message: str):
     # Convert emojis to text codes if phone doesn't support them
     if not SUPPORTS_EMOJI:
         message = emoji.demojize(message)
+    # Format for dumbphone display (newlines -> separators)
+    message = format_for_sms(message)
     chunks = split_message(message)
     success = True
 
