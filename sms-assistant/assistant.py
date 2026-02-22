@@ -16,6 +16,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Optional, Tuple
 
+import emoji
 import httpx
 
 # Active timers (in-memory, lost on restart)
@@ -37,6 +38,7 @@ OBSIDIAN_TODO = os.getenv("OBSIDIAN_TODO", os.path.expanduser("~/obsidian/_todo.
 POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "10"))  # seconds
 MESSAGES_DB = Path(os.getenv("MESSAGES_DB", os.path.expanduser("~/Library/Messages/chat.db")))
 STATE_FILE = Path(os.getenv("STATE_FILE", os.path.expanduser("~/.sms-assistant/state.json")))
+SUPPORTS_EMOJI = os.getenv("SUPPORTS_EMOJI", "false").lower() in ("true", "1", "yes")
 
 # Command types
 COMMANDS = ["WEATHER", "SEARCH", "MESSAGES", "CHAT"]
@@ -257,19 +259,50 @@ async def handle_weather(args: str = "") -> str:
                         lines.append(f"{day}: {lo}-{hi}°C{rain_str}")
                     return "\n".join(lines)
 
-            # Current weather with sunrise/sunset
-            resp = await client.get(
-                f"https://wttr.in/{location}",
-                params={"format": "%l: %c %t (feels %f). Rain: %o. Sun: %S-%s"},
-                headers={"User-Agent": "curl"}
+            # Current weather - use Open-Meteo for reliable data
+            meteo = await client.get(
+                "https://api.open-meteo.com/v1/forecast",
+                params={
+                    "latitude": DEFAULT_LAT,
+                    "longitude": DEFAULT_LON,
+                    "current": "temperature_2m,apparent_temperature,precipitation_probability,weather_code",
+                    "daily": "sunrise,sunset",
+                    "timezone": "Europe/London",
+                    "forecast_days": 1,
+                }
             )
+            if meteo.status_code == 200:
+                data = meteo.json()
+                current = data.get("current", {})
+                daily = data.get("daily", {})
 
-            if resp.status_code == 200:
-                return resp.text.strip()
+                temp = current.get("temperature_2m", "?")
+                feels = current.get("apparent_temperature", "?")
+                rain_prob = current.get("precipitation_probability", 0) or 0
+                weather_code = current.get("weather_code", 0)
+
+                # Convert WMO weather code to text
+                weather_text = {
+                    0: "Clear", 1: "Mostly clear", 2: "Partly cloudy", 3: "Overcast",
+                    45: "Foggy", 48: "Icy fog", 51: "Light drizzle", 53: "Drizzle",
+                    55: "Heavy drizzle", 61: "Light rain", 63: "Rain", 65: "Heavy rain",
+                    71: "Light snow", 73: "Snow", 75: "Heavy snow", 77: "Snow grains",
+                    80: "Light showers", 81: "Showers", 82: "Heavy showers",
+                    85: "Light snow showers", 86: "Snow showers",
+                    95: "Thunderstorm", 96: "Thunderstorm w/ hail", 99: "Severe thunderstorm"
+                }.get(weather_code, "Unknown")
+
+                sunrise = daily.get("sunrise", [""])[0]
+                sunset = daily.get("sunset", [""])[0]
+                sun_rise = sunrise.split("T")[1][:5] if "T" in sunrise else "?"
+                sun_set = sunset.split("T")[1][:5] if "T" in sunset else "?"
+
+                rain_str = f" Rain: {rain_prob}%." if rain_prob > 0 else ""
+                return f"{location.title()}: {weather_text}, {int(temp)}C (feels {int(feels)}C).{rain_str} Sun: {sun_rise}-{sun_set}"
             else:
                 return f"Couldn't get weather for {location}"
     except Exception as e:
-        log.error(f"Weather API error: {e}")
+        log.error(f"Weather API error: {type(e).__name__}: {e!r}")
         return "Weather lookup failed"
 
 
@@ -1464,6 +1497,9 @@ def split_message(message: str, max_len: int = 160) -> list[str]:
 
 def send_sms_reply(recipient: str, message: str):
     """Send SMS reply via Messages.app using AppleScript. Splits long messages."""
+    # Convert emojis to text codes if phone doesn't support them
+    if not SUPPORTS_EMOJI:
+        message = emoji.demojize(message)
     chunks = split_message(message)
     success = True
 
