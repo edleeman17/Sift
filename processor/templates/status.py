@@ -25,6 +25,7 @@ STATUS_HTML = """
         .service-info { flex: 1; min-width: 0; }
         .service-name { font-weight: bold; font-size: 16px; margin-bottom: 2px; }
         .service-detail { font-size: 13px; color: #9ca3af; }
+        .service-url { font-family: monospace; font-size: 11px; color: #6b7280; margin-top: 4px; word-break: break-all; }
         .service-status { font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 4px; flex-shrink: 0; }
         .service-status.healthy { background: #166534; color: white; }
         .service-status.degraded { background: #854d0e; color: white; }
@@ -39,6 +40,8 @@ STATUS_HTML = """
         .check-value.warn { color: #fbbf24; }
         .check-value.error { color: #f87171; }
         .check-value.info { color: #60a5fa; }
+        .service-response { font-family: monospace; font-size: 11px; background: #1a1a1a; padding: 8px; border-radius: 4px; margin-top: 10px; max-height: 80px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; color: #9ca3af; }
+        .service-response.error { color: #f87171; background: #1f1515; }
         .section-title { font-size: 14px; text-transform: uppercase; color: #6b7280; margin: 24px 0 12px; letter-spacing: 0.5px; }
         .section-title:first-of-type { margin-top: 0; }
         .refresh-btn { background: #3b82f6; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; margin-bottom: 20px; }
@@ -57,6 +60,13 @@ STATUS_HTML = """
         .log-message.dropped { color: #f87171; }
         .log-message.rate_limited { color: #fbbf24; }
         .log-message.llm { color: #c4b5fd; }
+        .warnings-container { background: #451a03; border: 1px solid #854d0e; border-radius: 8px; padding: 12px; margin-bottom: 20px; }
+        .warning-item { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid #713f12; }
+        .warning-item:last-child { border-bottom: none; }
+        .warning-icon { color: #fbbf24; font-size: 16px; }
+        .warning-sink { font-weight: bold; color: #fcd34d; min-width: 80px; }
+        .warning-message { color: #fef3c7; }
+        .no-warnings { display: none; }
     </style>
 </head>
 <body>
@@ -65,6 +75,11 @@ STATUS_HTML = """
     <button class="refresh-btn" onclick="refresh(true)">Refresh</button>
     <span class="last-check" id="last-check"></span>
     <span class="auto-refresh">(auto-refreshes every 10s)</span>
+
+    <div id="warnings-section" class="no-warnings">
+        <div class="section-title">Warnings</div>
+        <div class="warnings-container" id="warnings"></div>
+    </div>
 
     <div class="section-title">Core Services</div>
     <div class="status-grid" id="core-services"></div>
@@ -82,6 +97,9 @@ STATUS_HTML = """
         const icons = {
             processor: '⚙️',
             database: '🗄️',
+            rules: '📋',
+            rate_limiter: '🚦',
+            sentiment: '🧠',
             ollama: '🤖',
             pi: '📡',
             imessage: '💬',
@@ -95,21 +113,59 @@ STATUS_HTML = """
         function renderCheck(key, value) {
             let valueClass = 'info';
             const v = String(value).toLowerCase();
-            if (v === 'ok' || v === 'true' || v === 'healthy' || v === 'connected') valueClass = 'ok';
-            else if (v === 'error' || v === 'false' || v === 'unhealthy' || v === 'unavailable') valueClass = 'error';
+            if (v === 'ok' || v === 'true' || v === 'healthy' || v === 'connected' || v === 'yes') valueClass = 'ok';
+            else if (v === 'error' || v === 'false' || v === 'unhealthy' || v === 'unavailable' || v === 'no') valueClass = 'error';
             else if (v === 'degraded' || v === 'warning') valueClass = 'warn';
             return `<div class="check-item"><span class="check-label">${key}</span><span class="check-value ${valueClass}">${value}</span></div>`;
+        }
+
+        function formatValue(v) {
+            if (Array.isArray(v)) return v.join(', ');
+            if (typeof v === 'object' && v !== null) return JSON.stringify(v);
+            return String(v);
         }
 
         function renderService(s) {
             const icon = icons[s.id] || '❓';
             const statusClass = s.status.toLowerCase();
-            let checksHtml = '';
-            if (s.checks && Object.keys(s.checks).length > 0) {
-                checksHtml = '<div class="service-checks">' +
-                    Object.entries(s.checks).map(([k, v]) => renderCheck(k, v)).join('') +
+
+            // URL line (for external services)
+            let urlHtml = '';
+            if (s.url) {
+                urlHtml = `<div class="service-url">${s.url}</div>`;
+            }
+
+            // Combine checks and response into one details section
+            let detailsHtml = '';
+            const allChecks = [];
+
+            // Add explicit checks first
+            if (s.checks) {
+                Object.entries(s.checks).forEach(([k, v]) => allChecks.push([k, v]));
+            }
+
+            // Add response fields (if not already in checks)
+            if (s.response && typeof s.response === 'object') {
+                const checkKeys = new Set(Object.keys(s.checks || {}));
+                Object.entries(s.response).forEach(([k, v]) => {
+                    if (!checkKeys.has(k)) {
+                        allChecks.push([k, formatValue(v)]);
+                    }
+                });
+            }
+
+            if (allChecks.length > 0) {
+                detailsHtml = '<div class="service-checks">' +
+                    allChecks.map(([k, v]) => renderCheck(k, v)).join('') +
                     '</div>';
             }
+
+            // Error section (if any)
+            let errorHtml = '';
+            if (s.error) {
+                errorHtml = `<div class="service-response error">${s.error}</div>`;
+            }
+
             return `
                 <div class="service">
                     <div class="service-header">
@@ -117,10 +173,22 @@ STATUS_HTML = """
                         <div class="service-info">
                             <div class="service-name">${s.name}</div>
                             <div class="service-detail">${s.detail || ''}</div>
+                            ${urlHtml}
                         </div>
                         <div class="service-status ${statusClass}">${s.status}</div>
                     </div>
-                    ${checksHtml}
+                    ${detailsHtml}
+                    ${errorHtml}
+                </div>
+            `;
+        }
+
+        function renderWarning(w) {
+            return `
+                <div class="warning-item">
+                    <span class="warning-icon">⚠</span>
+                    <span class="warning-sink">${w.sink}</span>
+                    <span class="warning-message">${w.message}</span>
                 </div>
             `;
         }
@@ -131,7 +199,6 @@ STATUS_HTML = """
             if (manual) {
                 btn.disabled = true;
                 btn.textContent = 'Checking...';
-                // Show checking state only on manual refresh
                 document.querySelectorAll('.service-icon, .service-status').forEach(el => {
                     el.className = el.className.replace(/healthy|degraded|unhealthy|disabled/g, 'checking');
                 });
@@ -140,6 +207,16 @@ STATUS_HTML = """
             try {
                 const resp = await fetch('/api/status');
                 const data = await resp.json();
+
+                // Render warnings
+                const warningsSection = document.getElementById('warnings-section');
+                if (data.warnings && data.warnings.length > 0) {
+                    warningsSection.classList.remove('no-warnings');
+                    document.getElementById('warnings').innerHTML =
+                        data.warnings.map(renderWarning).join('');
+                } else {
+                    warningsSection.classList.add('no-warnings');
+                }
 
                 document.getElementById('core-services').innerHTML =
                     data.core.map(renderService).join('');
@@ -173,8 +250,8 @@ STATUS_HTML = """
             }
         }
 
-        refresh(true);  // Initial load with loading state
-        setInterval(() => refresh(false), 10000);  // Auto-refresh every 10 seconds
+        refresh(true);
+        setInterval(() => refresh(false), 10000);
     </script>
 </body>
 </html>

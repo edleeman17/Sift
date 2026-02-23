@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse
 
 from services.pi_health import get_pi_health
 from templates.status import STATUS_HTML
+from sinks import get_config_warnings
 import db
 
 router = APIRouter(tags=["status"])
@@ -24,281 +25,27 @@ async def status_page():
     return HTMLResponse(content=STATUS_HTML)
 
 
+async def check_endpoint(url: str, timeout: float = 2.0, verify: bool = True) -> dict:
+    """Check an HTTP endpoint and return response or error."""
+    try:
+        async with httpx.AsyncClient(timeout=timeout, verify=verify) as client:
+            resp = await client.get(url)
+            if resp.status_code == 200:
+                return {"ok": True, "data": resp.json()}
+            return {"ok": False, "error": f"HTTP {resp.status_code}"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:100]}
+
+
 @router.get("/api/status")
 async def status_api(request: Request):
     """JSON API for system status data."""
     app = request.app
 
-    # Health checks - fetch all endpoints and return ALL properties
-    health_checks = []
-
-    # 1. Processor health
-    try:
-        async with httpx.AsyncClient(timeout=2.0) as client:
-            resp = await client.get("http://localhost:8090/health")
-            if resp.status_code == 200:
-                data = resp.json()
-                health_checks.append({
-                    "id": "processor",
-                    "name": "Processor",
-                    "url": "/health",
-                    "status": "healthy" if data.get("status") == "healthy" else "unhealthy",
-                    "response": data,
-                })
-            else:
-                health_checks.append({
-                    "id": "processor",
-                    "name": "Processor",
-                    "url": "/health",
-                    "status": "unhealthy",
-                    "error": f"HTTP {resp.status_code}",
-                })
-    except Exception as e:
-        health_checks.append({
-            "id": "processor",
-            "name": "Processor",
-            "url": "/health",
-            "status": "unhealthy",
-            "error": str(e)[:100],
-        })
-
-    # 2. Pi/ancs-bridge health
-    pi_url = os.getenv("PI_HEALTH_URL", "")
-    if pi_url:
-        try:
-            async with httpx.AsyncClient(timeout=3.0) as client:
-                resp = await client.get(pi_url)
-                data = resp.json()
-                health_checks.append({
-                    "id": "pi",
-                    "name": "Pi (ancs-bridge)",
-                    "url": pi_url,
-                    "status": "healthy" if data.get("status") == "healthy" and data.get("phone_connected") else "degraded" if data.get("status") == "healthy" else "unhealthy",
-                    "response": data,
-                })
-        except Exception as e:
-            health_checks.append({
-                "id": "pi",
-                "name": "Pi (ancs-bridge)",
-                "url": pi_url,
-                "status": "unreachable",
-                "error": str(e)[:100],
-            })
-    else:
-        health_checks.append({
-            "id": "pi",
-            "name": "Pi (ancs-bridge)",
-            "url": "not configured",
-            "status": "disabled",
-            "error": "PI_HEALTH_URL not set",
-        })
-
-    # 3. iMessage Gateway health
-    imessage_url = os.getenv("IMESSAGE_GATEWAY_URL", "")
-    if imessage_url:
-        try:
-            async with httpx.AsyncClient(timeout=2.0) as client:
-                resp = await client.get(f"{imessage_url}/health")
-                if resp.status_code == 200:
-                    data = resp.json()
-                    health_checks.append({
-                        "id": "imessage",
-                        "name": "iMessage Gateway",
-                        "url": f"{imessage_url}/health",
-                        "status": "healthy" if data.get("status") == "healthy" else "unhealthy",
-                        "response": data,
-                    })
-                else:
-                    health_checks.append({
-                        "id": "imessage",
-                        "name": "iMessage Gateway",
-                        "url": f"{imessage_url}/health",
-                        "status": "unhealthy",
-                        "error": f"HTTP {resp.status_code}",
-                    })
-        except Exception as e:
-            health_checks.append({
-                "id": "imessage",
-                "name": "iMessage Gateway",
-                "url": f"{imessage_url}/health",
-                "status": "unreachable",
-                "error": str(e)[:100],
-            })
-    else:
-        health_checks.append({
-            "id": "imessage",
-            "name": "iMessage Gateway",
-            "url": "not configured",
-            "status": "disabled",
-            "error": "IMESSAGE_GATEWAY_URL not set",
-        })
-
-    # 4. Bark health
-    bark_config = app.state.rules.config.get("sinks", {}).get("bark", {})
-    bark_url = bark_config.get("url", "")
-    if bark_url:
-        try:
-            async with httpx.AsyncClient(timeout=2.0) as client:
-                resp = await client.get(f"{bark_url}/ping")
-                if resp.status_code == 200:
-                    data = resp.json()
-                    health_checks.append({
-                        "id": "bark",
-                        "name": "Bark",
-                        "url": f"{bark_url}/ping",
-                        "status": "healthy" if data.get("code") == 200 else "unhealthy",
-                        "response": data,
-                    })
-                else:
-                    health_checks.append({
-                        "id": "bark",
-                        "name": "Bark",
-                        "url": f"{bark_url}/ping",
-                        "status": "unhealthy",
-                        "error": f"HTTP {resp.status_code}",
-                    })
-        except Exception as e:
-            health_checks.append({
-                "id": "bark",
-                "name": "Bark",
-                "url": f"{bark_url}/ping",
-                "status": "unreachable",
-                "error": str(e)[:100],
-            })
-    else:
-        health_checks.append({
-            "id": "bark",
-            "name": "Bark",
-            "url": "not configured",
-            "status": "disabled",
-            "error": "No bark URL in config",
-        })
-
-    # 5. ntfy health
-    ntfy_config = app.state.rules.config.get("sinks", {}).get("ntfy", {})
-    ntfy_url = ntfy_config.get("url", "")
-    if ntfy_url:
-        # Extract base URL (remove topic path)
-        ntfy_base = "/".join(ntfy_url.rstrip("/").split("/")[:-1]) if "/" in ntfy_url else ntfy_url
-        try:
-            async with httpx.AsyncClient(timeout=2.0, verify=False) as client:
-                resp = await client.get(f"{ntfy_base}/v1/health")
-                if resp.status_code == 200:
-                    data = resp.json()
-                    health_checks.append({
-                        "id": "ntfy",
-                        "name": "ntfy",
-                        "url": f"{ntfy_base}/v1/health",
-                        "status": "healthy" if data.get("healthy") else "unhealthy",
-                        "response": data,
-                    })
-                else:
-                    health_checks.append({
-                        "id": "ntfy",
-                        "name": "ntfy",
-                        "url": f"{ntfy_base}/v1/health",
-                        "status": "unhealthy",
-                        "error": f"HTTP {resp.status_code}",
-                    })
-        except Exception as e:
-            health_checks.append({
-                "id": "ntfy",
-                "name": "ntfy",
-                "url": f"{ntfy_base}/v1/health",
-                "status": "unreachable",
-                "error": str(e)[:100],
-            })
-    else:
-        health_checks.append({
-            "id": "ntfy",
-            "name": "ntfy",
-            "url": "not configured",
-            "status": "disabled",
-            "error": "No ntfy URL in config",
-        })
-
-    # 6. Ollama health
-    ollama_url = os.getenv("OLLAMA_URL", "")
-    if ollama_url:
-        try:
-            async with httpx.AsyncClient(timeout=2.0) as client:
-                resp = await client.get(f"{ollama_url}/api/tags")
-                if resp.status_code == 200:
-                    data = resp.json()
-                    models = data.get("models", [])
-                    health_checks.append({
-                        "id": "ollama",
-                        "name": "Ollama",
-                        "url": f"{ollama_url}/api/tags",
-                        "status": "healthy",
-                        "response": {
-                            "models": [m.get("name") for m in models],
-                            "count": len(models),
-                        },
-                    })
-                else:
-                    health_checks.append({
-                        "id": "ollama",
-                        "name": "Ollama",
-                        "url": f"{ollama_url}/api/tags",
-                        "status": "unhealthy",
-                        "error": f"HTTP {resp.status_code}",
-                    })
-        except Exception as e:
-            health_checks.append({
-                "id": "ollama",
-                "name": "Ollama",
-                "url": f"{ollama_url}/api/tags",
-                "status": "unreachable",
-                "error": str(e)[:100],
-            })
-    else:
-        health_checks.append({
-            "id": "ollama",
-            "name": "Ollama",
-            "url": "not configured",
-            "status": "disabled",
-            "error": "OLLAMA_URL not set",
-        })
-
-    # 7. SMS Assistant (heartbeat file)
-    sms_heartbeat_path = Path(os.path.expanduser("~/.sms-assistant/heartbeat"))
-    if sms_heartbeat_path.exists():
-        try:
-            heartbeat_content = sms_heartbeat_path.read_text().strip()
-            heartbeat_time = datetime.fromisoformat(heartbeat_content)
-            age_seconds = int((datetime.now() - heartbeat_time).total_seconds())
-            health_checks.append({
-                "id": "sms_assistant",
-                "name": "SMS Assistant",
-                "url": str(sms_heartbeat_path),
-                "status": "healthy" if age_seconds < 60 else "degraded",
-                "response": {
-                    "last_heartbeat": heartbeat_content,
-                    "age_seconds": age_seconds,
-                },
-            })
-        except Exception as e:
-            health_checks.append({
-                "id": "sms_assistant",
-                "name": "SMS Assistant",
-                "url": str(sms_heartbeat_path),
-                "status": "unhealthy",
-                "error": str(e)[:100],
-            })
-    else:
-        health_checks.append({
-            "id": "sms_assistant",
-            "name": "SMS Assistant",
-            "url": str(sms_heartbeat_path),
-            "status": "disabled",
-            "error": "No heartbeat file found",
-        })
-
-    # Core services
+    # Core services (internal, no external health checks)
     core_services = []
 
-    # Processor (always healthy if we're responding)
+    # Processor
     core_services.append({
         "id": "processor",
         "name": "Notification Processor",
@@ -368,38 +115,70 @@ async def status_api(request: Request):
         } if sentiment_enabled else {}
     })
 
-    # External services
+    # External services (with health checks)
     external_services = []
+
+    # Pi/ancs-bridge
+    pi_url = os.getenv("PI_HEALTH_URL", "")
+    if pi_url:
+        result = await check_endpoint(pi_url, timeout=3.0)
+        if result["ok"]:
+            data = result["data"]
+            connected = data.get("phone_connected", False)
+            battery = data.get("battery")
+            checks = {"phone_connected": "Yes" if connected else "No"}
+            if battery is not None:
+                checks["battery"] = f"{battery}%"
+            external_services.append({
+                "id": "pi",
+                "name": "Raspberry Pi (ancs-bridge)",
+                "status": "Healthy" if connected else "Degraded",
+                "detail": "iPhone connected" if connected else "iPhone not connected",
+                "url": pi_url,
+                "response": data,
+                "checks": checks,
+            })
+        else:
+            external_services.append({
+                "id": "pi",
+                "name": "Raspberry Pi (ancs-bridge)",
+                "status": "Unhealthy",
+                "detail": result["error"],
+                "url": pi_url,
+                "error": result["error"],
+            })
+    else:
+        external_services.append({
+            "id": "pi",
+            "name": "Raspberry Pi (ancs-bridge)",
+            "status": "Disabled",
+            "detail": "PI_HEALTH_URL not set",
+        })
 
     # Ollama
     ollama_url = os.getenv("OLLAMA_URL", "")
     if ollama_url:
-        try:
-            async with httpx.AsyncClient(timeout=2.0) as client:
-                resp = await client.get(f"{ollama_url}/api/tags")
-                if resp.status_code == 200:
-                    models = resp.json().get("models", [])
-                    model_names = [m.get("name", "?") for m in models[:3]]
-                    external_services.append({
-                        "id": "ollama",
-                        "name": "Ollama LLM",
-                        "status": "Healthy",
-                        "detail": f"Models: {', '.join(model_names)}",
-                        "checks": {"models_available": len(models)}
-                    })
-                else:
-                    external_services.append({
-                        "id": "ollama",
-                        "name": "Ollama LLM",
-                        "status": "Unhealthy",
-                        "detail": f"HTTP {resp.status_code}",
-                    })
-        except Exception as e:
+        result = await check_endpoint(f"{ollama_url}/api/tags")
+        if result["ok"]:
+            models = result["data"].get("models", [])
+            model_names = [m.get("name", "?") for m in models[:3]]
+            external_services.append({
+                "id": "ollama",
+                "name": "Ollama LLM",
+                "status": "Healthy",
+                "detail": f"Models: {', '.join(model_names)}" if model_names else "No models",
+                "url": f"{ollama_url}/api/tags",
+                "response": {"models": [m.get("name") for m in models], "count": len(models)},
+                "checks": {"models_available": len(models)}
+            })
+        else:
             external_services.append({
                 "id": "ollama",
                 "name": "Ollama LLM",
                 "status": "Unhealthy",
-                "detail": str(e)[:50],
+                "detail": result["error"],
+                "url": f"{ollama_url}/api/tags",
+                "error": result["error"],
             })
     else:
         external_services.append({
@@ -409,155 +188,131 @@ async def status_api(request: Request):
             "detail": "OLLAMA_URL not set",
         })
 
-    # Pi/ancs-bridge
-    pi_health = await get_pi_health()
-    if pi_health.get("status") == "disabled":
-        external_services.append({
-            "id": "pi",
-            "name": "Raspberry Pi (ancs-bridge)",
-            "status": "Disabled",
-            "detail": "PI_HEALTH_URL not set",
-        })
-    elif pi_health.get("status") == "unreachable":
-        external_services.append({
-            "id": "pi",
-            "name": "Raspberry Pi (ancs-bridge)",
-            "status": "Unhealthy",
-            "detail": pi_health.get("error", "Unreachable")[:50],
-        })
-    else:
-        connected = pi_health.get("phone_connected", False)
-        battery = pi_health.get("battery")
-        last_activity = pi_health.get("last_activity_ago")
-        checks = {"phone_connected": "Yes" if connected else "No"}
-        if battery is not None:
-            checks["battery"] = f"{battery}%"
-        if last_activity:
-            checks["last_activity"] = f"{last_activity}s ago"
-        external_services.append({
-            "id": "pi",
-            "name": "Raspberry Pi (ancs-bridge)",
-            "status": "Healthy" if connected else "Degraded",
-            "detail": "iPhone connected" if connected else "iPhone not connected",
-            "checks": checks,
-        })
-
     # iMessage Gateway
     imessage_url = os.getenv("IMESSAGE_GATEWAY_URL", "")
     if imessage_url:
-        try:
-            async with httpx.AsyncClient(timeout=2.0) as client:
-                resp = await client.get(f"{imessage_url}/health")
-                if resp.status_code == 200:
-                    external_services.append({
-                        "id": "imessage",
-                        "name": "iMessage Gateway",
-                        "status": "Healthy",
-                        "detail": "macOS Messages.app bridge running",
-                    })
-                else:
-                    external_services.append({
-                        "id": "imessage",
-                        "name": "iMessage Gateway",
-                        "status": "Unhealthy",
-                        "detail": f"HTTP {resp.status_code}",
-                    })
-        except Exception:
+        result = await check_endpoint(f"{imessage_url}/health")
+        if result["ok"]:
+            external_services.append({
+                "id": "imessage",
+                "name": "iMessage Gateway",
+                "status": "Healthy",
+                "detail": "macOS Messages.app bridge running",
+                "url": f"{imessage_url}/health",
+                "response": result["data"],
+            })
+        else:
             external_services.append({
                 "id": "imessage",
                 "name": "iMessage Gateway",
                 "status": "Unhealthy",
-                "detail": "Connection failed",
+                "detail": result["error"],
+                "url": f"{imessage_url}/health",
+                "error": result["error"],
             })
+    else:
+        external_services.append({
+            "id": "imessage",
+            "name": "iMessage Gateway",
+            "status": "Disabled",
+            "detail": "IMESSAGE_GATEWAY_URL not set",
+        })
 
-    # Bark push server
+    # Bark
     bark_config = app.state.rules.config.get("sinks", {}).get("bark", {})
     bark_url = bark_config.get("url", "")
     if bark_url:
-        try:
-            async with httpx.AsyncClient(timeout=2.0) as client:
-                resp = await client.get(f"{bark_url}/ping")
-                if resp.status_code == 200:
-                    external_services.append({
-                        "id": "bark",
-                        "name": "Bark Push Server",
-                        "status": "Healthy",
-                        "detail": "iOS push notifications ready",
-                    })
-                else:
-                    external_services.append({
-                        "id": "bark",
-                        "name": "Bark Push Server",
-                        "status": "Unhealthy",
-                        "detail": f"HTTP {resp.status_code}",
-                    })
-        except Exception:
+        result = await check_endpoint(f"{bark_url}/ping")
+        if result["ok"]:
+            external_services.append({
+                "id": "bark",
+                "name": "Bark Push Server",
+                "status": "Healthy" if result["data"].get("code") == 200 else "Unhealthy",
+                "detail": "iOS push notifications ready",
+                "url": f"{bark_url}/ping",
+                "response": result["data"],
+            })
+        else:
             external_services.append({
                 "id": "bark",
                 "name": "Bark Push Server",
                 "status": "Unhealthy",
-                "detail": "Connection failed",
+                "detail": result["error"],
+                "url": f"{bark_url}/ping",
+                "error": result["error"],
             })
+    else:
+        external_services.append({
+            "id": "bark",
+            "name": "Bark Push Server",
+            "status": "Disabled",
+            "detail": "Not configured",
+        })
 
-    # ntfy push server
+    # ntfy
     ntfy_config = app.state.rules.config.get("sinks", {}).get("ntfy", {})
     ntfy_url = ntfy_config.get("url", "")
     if ntfy_url:
-        # Extract base URL (remove topic path)
         ntfy_base = "/".join(ntfy_url.rstrip("/").split("/")[:-1]) if "/" in ntfy_url else ntfy_url
-        try:
-            async with httpx.AsyncClient(timeout=2.0, verify=False) as client:
-                resp = await client.get(f"{ntfy_base}/v1/health")
-                if resp.status_code == 200:
-                    external_services.append({
-                        "id": "ntfy",
-                        "name": "ntfy Server",
-                        "status": "Healthy",
-                        "detail": "Push notifications ready",
-                    })
-                else:
-                    external_services.append({
-                        "id": "ntfy",
-                        "name": "ntfy Server",
-                        "status": "Unhealthy",
-                        "detail": f"HTTP {resp.status_code}",
-                    })
-        except Exception:
+        result = await check_endpoint(f"{ntfy_base}/v1/health", verify=False)
+        if result["ok"]:
+            external_services.append({
+                "id": "ntfy",
+                "name": "ntfy Server",
+                "status": "Healthy" if result["data"].get("healthy") else "Unhealthy",
+                "detail": "Push notifications ready",
+                "url": f"{ntfy_base}/v1/health",
+                "response": result["data"],
+            })
+        else:
             external_services.append({
                 "id": "ntfy",
                 "name": "ntfy Server",
                 "status": "Unhealthy",
-                "detail": "Connection failed",
+                "detail": result["error"],
+                "url": f"{ntfy_base}/v1/health",
+                "error": result["error"],
             })
+    else:
+        external_services.append({
+            "id": "ntfy",
+            "name": "ntfy Server",
+            "status": "Disabled",
+            "detail": "Not configured",
+        })
 
-    # SMS Assistant (check heartbeat file)
-    sms_heartbeat = Path(os.path.expanduser("~/.sms-assistant/heartbeat"))
+    # SMS Assistant (heartbeat file)
+    sms_heartbeat = Path("/app/sms-assistant-state/heartbeat")
     if sms_heartbeat.exists():
         try:
-            heartbeat_time = datetime.fromisoformat(sms_heartbeat.read_text().strip())
-            age_seconds = (datetime.now() - heartbeat_time).total_seconds()
-            if age_seconds < 60:
-                external_services.append({
-                    "id": "sms_assistant",
-                    "name": "SMS Assistant",
-                    "status": "Healthy",
-                    "detail": "Polling for messages",
-                    "checks": {"last_heartbeat": f"{int(age_seconds)}s ago"}
-                })
-            else:
-                external_services.append({
-                    "id": "sms_assistant",
-                    "name": "SMS Assistant",
-                    "status": "Degraded",
-                    "detail": f"Last heartbeat {int(age_seconds)}s ago",
-                })
-        except Exception:
+            heartbeat_content = sms_heartbeat.read_text().strip()
+            heartbeat_time = datetime.fromisoformat(heartbeat_content)
+            age_seconds = int((datetime.now() - heartbeat_time).total_seconds())
             external_services.append({
                 "id": "sms_assistant",
                 "name": "SMS Assistant",
-                "status": "Degraded",
-                "detail": "Invalid heartbeat file",
+                "status": "Healthy" if age_seconds < 60 else "Degraded",
+                "detail": "Polling for messages" if age_seconds < 60 else f"Last heartbeat {age_seconds}s ago",
+                "url": str(sms_heartbeat),
+                "response": {"last_heartbeat": heartbeat_content, "age_seconds": age_seconds},
+                "checks": {"last_heartbeat": f"{age_seconds}s ago"}
             })
+        except Exception as e:
+            external_services.append({
+                "id": "sms_assistant",
+                "name": "SMS Assistant",
+                "status": "Unhealthy",
+                "detail": "Invalid heartbeat file",
+                "url": str(sms_heartbeat),
+                "error": str(e)[:100],
+            })
+    else:
+        external_services.append({
+            "id": "sms_assistant",
+            "name": "SMS Assistant",
+            "status": "Disabled",
+            "detail": "No heartbeat file",
+        })
 
     # Notification sinks
     sinks_status = []
@@ -587,8 +342,12 @@ async def status_api(request: Request):
                 if " | " in line and not line.startswith("  "):
                     parts = line.split(" | ")
                     if len(parts) >= 4:
+                        # LLM log format: "2026-02-23 11:14:11 | type | ..."
+                        timestamp = parts[0].strip()
+                        time_part = timestamp.split(" ")[1] if " " in timestamp else timestamp
                         logs.append({
-                            "time": parts[0].split(" ")[1] if " " in parts[0] else parts[0],
+                            "sort_key": timestamp,  # Full timestamp for sorting
+                            "time": time_part[:8],  # HH:MM:SS for display
                             "source": "llm",
                             "type": "llm",
                             "message": f"{parts[1]} ({parts[3]})"
@@ -597,21 +356,35 @@ async def status_api(request: Request):
             pass
 
     # Also add recent notifications to logs
-    recent = db.get_recent_notifications(10)
+    recent = db.get_recent_notifications(15)
     for n in recent:
         if n["app"] not in HIDDEN_APPS:
+            # Notification timestamp format: "2026-02-23T11:14:12.862953" (ISO with T)
+            timestamp = n["timestamp"]
+            # Handle both "T" and space separators
+            if "T" in timestamp:
+                time_part = timestamp.split("T")[1][:8]
+            elif " " in timestamp:
+                time_part = timestamp.split(" ")[1][:8]
+            else:
+                time_part = timestamp[:8]
             logs.append({
-                "time": n["timestamp"].split(" ")[1][:8] if " " in n["timestamp"] else n["timestamp"][:8],
+                "sort_key": timestamp.replace("T", " "),  # Normalize for sorting
+                "time": time_part,
                 "source": n["app"][:10],
                 "type": n["action"],
                 "message": f"{n['title'][:30]}: {n['body'][:40]}..."
             })
 
-    # Sort by time descending and limit
-    logs = sorted(logs, key=lambda x: x["time"], reverse=True)[:15]
+    # Sort by full timestamp descending and limit
+    logs = sorted(logs, key=lambda x: x["sort_key"], reverse=True)[:15]
+
+    # Remove sort_key from output
+    for log in logs:
+        del log["sort_key"]
 
     return {
-        "health_checks": health_checks,
+        "warnings": get_config_warnings(),
         "core": core_services,
         "external": external_services,
         "sinks": sinks_status,
