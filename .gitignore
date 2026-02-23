@@ -15,6 +15,9 @@ docker-compose.yaml
 data/
 *.db
 
+# Backups created by setup.sh
+backups/
+
 # Python
 __pycache__/
 *.py[cod]
