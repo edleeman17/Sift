@@ -32,3 +32,7 @@ def get_command_handler(name: str):
 def list_commands() -> list[str]:
     """List all registered commands."""
     return sorted(COMMAND_REGISTRY.keys())
+
+
+# Import all command modules to trigger decorator registration
+from commands import system, weather, todo, info, comms, utility
