@@ -4,6 +4,8 @@
 import logging
 import os
 import subprocess
+
+import emoji
 from aiohttp import web
 
 logging.basicConfig(
@@ -18,6 +20,9 @@ DEFAULT_RECIPIENT = os.getenv("DEFAULT_RECIPIENT", "")  # e.g., "+441234567890"
 
 def send_imessage(recipient: str, message: str) -> tuple[bool, str]:
     """Send SMS/iMessage via Messages.app using AppleScript."""
+    # Convert emojis to text codes for dumbphones (e.g. ☀️ -> :sun:)
+    message = emoji.demojize(message)
+
     # Escape special characters for AppleScript
     # Replace smart quotes and other problematic characters
     escaped_message = message.replace('\\', '\\\\')
