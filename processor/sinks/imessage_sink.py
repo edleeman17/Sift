@@ -19,11 +19,7 @@ class IMessageSink(NotificationSink):
         if not self._enabled:
             return False
 
-        # Format message for SMS (160 char limit)
-        prefix = f"{msg.app}: {msg.title}\n"
-        max_body = 160 - len(prefix)
-        body = msg.body[:max_body] if len(msg.body) > max_body else msg.body
-        sms_text = f"{prefix}{body}"
+        sms_text = f"{msg.app}: {msg.title}\n{msg.body}"
 
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:

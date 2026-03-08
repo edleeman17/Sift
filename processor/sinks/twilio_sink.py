@@ -29,11 +29,7 @@ class TwilioSink(NotificationSink):
             return False
 
         try:
-            # Truncate to SMS limit (leaving room for app/title prefix)
-            prefix = f"{msg.app}: {msg.title}\n"
-            max_body = 160 - len(prefix)
-            body = msg.body[:max_body] if len(msg.body) > max_body else msg.body
-            sms_text = f"{prefix}{body}"
+            sms_text = f"{msg.app}: {msg.title}\n{msg.body}"
 
             url = f"https://api.twilio.com/2010-04-01/Accounts/{self._account_sid}/Messages.json"
 
