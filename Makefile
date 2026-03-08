@@ -1,4 +1,4 @@
-.PHONY: build up down logs test health pull-model setup-hooks
+.PHONY: build up down logs test health pull-model setup-hooks test-ringgo
 
 build:
 	docker compose build
@@ -27,11 +27,16 @@ test-messages:
 		-H "Content-Type: application/json" \
 		-d '{"app": "messages", "title": "Friend", "body": "Hey, are you free?"}'
 
+test-ringgo:
+	curl -X POST http://localhost:8090/notification \
+		-H "Content-Type: application/json" \
+		-d '{"app": "messages", "title": "81025", "body": "RingGo: Parking confirmed. Location 26205, 2 hours until 14:30. Cost 4.50 GBP."}'
+
 health:
 	curl http://localhost:8090/health
 
 pull-model:
-	docker compose exec ollama ollama pull qwen2.5:7b
+	docker compose exec ollama ollama pull qwen2.5:3b
 
 restart:
 	docker compose restart processor

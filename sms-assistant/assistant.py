@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import sqlite3
+import subprocess
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -29,7 +30,7 @@ log = logging.getLogger(__name__)
 # Configuration
 DUMBPHONE_NUMBER = os.getenv("DUMBPHONE_NUMBER", "")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:1.5b")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
 POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "10"))
 MESSAGES_DB = Path(os.getenv("MESSAGES_DB", os.path.expanduser("~/Library/Messages/chat.db")))
 STATE_FILE = Path(os.getenv("STATE_FILE", os.path.expanduser("~/.sms-assistant/state.json")))
@@ -218,19 +219,6 @@ async def process_message(msg: IncomingMessage) -> str:
 
     log.info(f"Processing: {text}")
 
-    # HELP is handled specially (not a registered command)
-    if text_upper == "HELP":
-        return """BRIEFING - Morning summary
-WEATHER/WEATHER week/RAIN
-BIN - Bin day
-TODO/DONE 1,2
-TIMER 25/REMIND 3pm [msg]
-CALL [name]/CONTACT [place]
-NAV [from] to [dest]
-PING/RESET/LOCATE
-INSURANCE/ICE/BORED
-Or just ask anything"""
-
     # Parse command and args
     parts = text_upper.split(maxsplit=1)
     command_name = parts[0]
@@ -374,7 +362,7 @@ def get_ack_message(text: str) -> Optional[str]:
     text_upper = text.strip().upper()
 
     # Quick commands that don't need acks
-    quick_commands = {"HELP", "PING", "TODO", "LOCATE", "WEATHER", "TIMER"}
+    quick_commands = {"HELP", "PING", "TODO", "LOCATE", "WEATHER", "TIMER", "RINGGO"}
     if text_upper in quick_commands:
         return None
     if text_upper.startswith("TODO "):
