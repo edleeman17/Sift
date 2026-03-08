@@ -11,6 +11,7 @@ from classifier import LLMClassifier, BatchedSentimentAnalyzer
 from rate_limiter import RateLimiter
 from rules import RuleEngine
 from sinks import load_sinks_from_config
+from services.battery_monitor import BatteryMonitor
 from routes import include_all_routes
 import db
 
@@ -50,8 +51,21 @@ async def lifespan(app: FastAPI):
     sinks_config = app.state.rules.config.get("sinks", {})
     app.state.sinks = load_sinks_from_config(sinks_config)
 
+    # Start battery monitor
+    battery_config = app.state.rules.global_config.get("battery_alert", {})
+    if battery_config.get("enabled", True):
+        app.state.battery_monitor = BatteryMonitor(
+            sinks=app.state.sinks,
+            threshold=battery_config.get("threshold", 20),
+            cooldown_minutes=battery_config.get("cooldown_minutes", 60),
+        )
+        await app.state.battery_monitor.start()
+
     yield
-    # Shutdown - nothing to clean up
+
+    # Shutdown
+    if hasattr(app.state, "battery_monitor"):
+        await app.state.battery_monitor.stop()
 
 
 app = FastAPI(title="Sift", lifespan=lifespan)
