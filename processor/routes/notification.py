@@ -1,6 +1,10 @@
 """Core notification processing routes."""
 
+import json
 import logging
+from datetime import datetime
+from pathlib import Path
+
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
@@ -10,30 +14,72 @@ import db
 
 log = logging.getLogger(__name__)
 
+# Emergency mode state file - shared with sms-assistant via volume mount
+EMERGENCY_FILE = Path("/app/sms-assistant-state/emergency.json")
+
+
+def check_emergency_mode() -> bool:
+    """Check if emergency mode is active (bypass all drop rules)."""
+    if not EMERGENCY_FILE.exists():
+        return False
+    try:
+        state = json.loads(EMERGENCY_FILE.read_text())
+        if not state.get("active"):
+            return False
+        expires = datetime.fromisoformat(state["expires_at"])
+        if datetime.now() > expires:
+            # Expired - clean up (processor doesn't write, but handles stale file)
+            return False
+        return True
+    except Exception:
+        return False
+
 router = APIRouter(tags=["notification"])
 
 
 @router.post("/notification", response_model=NotificationResponse)
 async def receive_notification(req: NotificationRequest, request: Request):
     """Process incoming notification."""
-    app = request.app
+    state = request.app.state
     msg = Message.from_request(req)
 
-    # Log to DB first
+    # Early dedup check - before any DB logging
+    dedup_result = state.rate_limiter.is_duplicate(msg)
+    if dedup_result.is_duplicate:
+        log.debug(f"[DUPLICATE] {msg.app}/{msg.title}: {dedup_result.reason}")
+        return NotificationResponse(status="duplicate", reason=dedup_result.reason)
+
+    # Log to DB (only non-duplicates reach here)
     notification_id = db.log_notification(msg)
 
+    # Emergency mode bypasses all rules and rate limiting
+    if check_emergency_mode():
+        log.warning(f"[EMERGENCY] Overriding rules for {msg.app}/{msg.title}")
+        sent_to = []
+        for sink in state.sinks:
+            if sink.is_enabled():
+                success = await sink.send(msg)
+                if success:
+                    sent_to.append(sink.name)
+        reason = f"emergency mode -> sent to: {', '.join(sent_to)}"
+        db.update_notification(notification_id, "sent", reason)
+        return NotificationResponse(status="sent", reason=reason)
+
     # Rule evaluation first (drop early before rate limiting)
-    rule_result = app.state.rules.evaluate(msg)
+    rule_result = state.rules.evaluate(msg)
 
     if rule_result.action == Action.DROP:
         # Check sentiment before dropping - urgent messages get through
         # Skip group chats (WhatsApp uses ~ prefix, others use "Group" or commas)
         is_group_chat = "~" in msg.title or "Group" in msg.title or ", " in msg.title
-        sentiment_config = app.state.rules.global_config.get("sentiment_detection", {})
-        if sentiment_config.get("enabled", False) and not is_group_chat:
+        sentiment_config = state.rules.global_config.get("sentiment_detection", {})
+        # Skip excluded senders (e.g. dumbphone - we don't want to echo back our own messages)
+        exclude_senders = sentiment_config.get("exclude_senders", [])
+        is_excluded_sender = any(excl.lower() in msg.title.lower() for excl in exclude_senders)
+        if sentiment_config.get("enabled", False) and not is_group_chat and not is_excluded_sender:
             allowed_apps = sentiment_config.get("apps", [])
             if not allowed_apps or msg.app in allowed_apps:
-                sentiment = await app.state.sentiment_analyzer.analyze_sentiment(msg)
+                sentiment = await state.sentiment_analyzer.analyze_sentiment(msg)
                 if sentiment.is_urgent:
                     log.info(f"[URGENT] {msg.app}/{msg.title}: sentiment override - {sentiment.reason}")
                     rule_result.action = Action.SEND
@@ -44,16 +90,18 @@ async def receive_notification(req: NotificationRequest, request: Request):
             db.update_notification(notification_id, "dropped", rule_result.reason)
             return NotificationResponse(status="dropped", reason=rule_result.reason)
 
-    # Rate limit check (only for non-dropped notifications)
-    rate_result = app.state.rate_limiter.check(msg)
-    if not rate_result.allowed:
-        log.info(f"[RATE_LIMITED] {msg.app}/{msg.title}: {rate_result.reason}")
-        db.update_notification(notification_id, "rate_limited", rate_result.reason)
-        return NotificationResponse(status="rate_limited", reason=rate_result.reason)
+    # Rate limit check (skip for global rule matches - those are always priority)
+    is_global_rule = rule_result.reason.startswith("global rule:")
+    if not is_global_rule:
+        rate_result = state.rate_limiter.check(msg)
+        if not rate_result.allowed:
+            log.info(f"[RATE_LIMITED] {msg.app}/{msg.title}: {rate_result.reason}")
+            db.update_notification(notification_id, "rate_limited", rate_result.reason)
+            return NotificationResponse(status="rate_limited", reason=rate_result.reason)
 
     if rule_result.action == Action.LLM:
         # Run through classifier (with optional custom prompt from rule)
-        classification = await app.state.classifier.classify(msg, custom_prompt=rule_result.prompt)
+        classification = await state.classifier.classify(msg, custom_prompt=rule_result.prompt)
         if not classification.should_send:
             log.info(f"[DROPPED] {msg.app}/{msg.title}: LLM: {classification.reason}")
             db.update_notification(notification_id, "dropped", f"LLM: {classification.reason}")
@@ -65,7 +113,7 @@ async def receive_notification(req: NotificationRequest, request: Request):
 
     # Send to all enabled sinks
     sent_to = []
-    for sink in app.state.sinks:
+    for sink in state.sinks:
         if sink.is_enabled():
             success = await sink.send(msg)
             if success:

@@ -13,6 +13,12 @@ class RateLimitResult:
     reason: str
 
 
+@dataclass
+class DedupResult:
+    is_duplicate: bool
+    reason: str
+
+
 class RateLimiter:
     """Per-app/sender rate limiting with deduplication."""
 
@@ -26,41 +32,52 @@ class RateLimiter:
         self._history: dict[str, list[datetime]] = defaultdict(list)
         # Track recent message hashes for deduplication
         self._recent_hashes: dict[str, datetime] = {}
-        self._default_dedup_window = timedelta(minutes=5)
+        self._default_dedup_window = timedelta(hours=12)
+
+    def _get_dedup_window(self, app: str) -> timedelta:
+        """Get dedup window for an app."""
+        if app in self.app_dedup_hours:
+            return timedelta(hours=self.app_dedup_hours[app])
+        return self._default_dedup_window
+
+    def is_duplicate(self, msg: Message) -> DedupResult:
+        """Check if message is a duplicate. Called before DB logging.
+
+        Returns DedupResult with is_duplicate=True if this exact message
+        was seen within the dedup window.
+        """
+        now = datetime.utcnow()
+        dedup_window = self._get_dedup_window(msg.app)
+        msg_hash = self._hash_message(msg)
+
+        if msg_hash in self._recent_hashes:
+            hash_time = self._recent_hashes[msg_hash]
+            if now - hash_time < dedup_window:
+                hours = dedup_window.total_seconds() / 3600
+                if hours >= 1:
+                    return DedupResult(
+                        is_duplicate=True,
+                        reason=f"duplicate within {int(hours)}h"
+                    )
+                return DedupResult(
+                    is_duplicate=True,
+                    reason=f"duplicate within {int(dedup_window.total_seconds())}s"
+                )
+
+        # Record hash for future checks
+        self._recent_hashes[msg_hash] = now
+        # Clean old hashes periodically
+        self._cleanup(now)
+        return DedupResult(is_duplicate=False, reason="")
 
     def check(self, msg: Message) -> RateLimitResult:
-        """Check if message should be rate limited."""
+        """Check cooldown and hourly limits. Call is_duplicate() first for dedup."""
         # Skip rate limiting for exempt apps
         if msg.app in self.exempt_apps:
             return RateLimitResult(allowed=True, reason="")
 
         now = datetime.utcnow()
         key = f"{msg.app}:{msg.title}"
-
-        # Get app-specific dedup window or default
-        if msg.app in self.app_dedup_hours:
-            dedup_window = timedelta(hours=self.app_dedup_hours[msg.app])
-        else:
-            dedup_window = self._default_dedup_window
-
-        # Dedupe check first
-        msg_hash = self._hash_message(msg)
-        if msg_hash in self._recent_hashes:
-            hash_time = self._recent_hashes[msg_hash]
-            if now - hash_time < dedup_window:
-                hours = dedup_window.total_seconds() / 3600
-                if hours >= 1:
-                    return RateLimitResult(
-                        allowed=False,
-                        reason=f"duplicate within {int(hours)}h"
-                    )
-                return RateLimitResult(
-                    allowed=False,
-                    reason=f"duplicate within {int(dedup_window.total_seconds())}s"
-                )
-
-        # Clean old entries
-        self._cleanup(now)
 
         # Check cooldown (skip for no_cooldown_apps)
         if self._history[key] and msg.app not in self.no_cooldown_apps:
@@ -84,7 +101,6 @@ class RateLimiter:
 
         # Record this message
         self._history[key].append(now)
-        self._recent_hashes[msg_hash] = now
 
         return RateLimitResult(allowed=True, reason="")
 
