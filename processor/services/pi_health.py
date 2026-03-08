@@ -2,6 +2,7 @@
 
 import os
 from datetime import datetime
+from typing import Optional
 
 import httpx
 
@@ -31,7 +32,7 @@ def format_time_ago(seconds: int) -> str:
         return f"{seconds // 3600}h {(seconds % 3600) // 60}m ago"
 
 
-def get_last_notification_ago(db, hidden_apps: set) -> str | None:
+def get_last_notification_ago(db, hidden_apps: set) -> Optional[str]:
     """Get human-readable time since last visible notification."""
     last_time = db.get_last_notification_time(exclude_apps=hidden_apps)
     if not last_time:

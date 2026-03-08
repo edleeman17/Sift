@@ -169,15 +169,13 @@ DASHBOARD_HTML = """
         <div id="health-summary" class="health-summary"></div>
     </a>
 
-    <div class="stats">
+    <div class="stats" onclick="toggleAppStats()" style="cursor: pointer;">
         <div class="stat"><div id="stat-total" class="stat-value">{total}</div><div class="stat-label">Total</div></div>
         <div class="stat sent"><div id="stat-sent" class="stat-value">{sent}</div><div class="stat-label">Sent</div></div>
         <div class="stat dropped"><div id="stat-dropped" class="stat-value">{dropped}</div><div class="stat-label">Dropped</div></div>
         <div class="stat rate_limited"><div id="stat-rate-limited" class="stat-value">{rate_limited}</div><div class="stat-label">Rate Lim</div></div>
     </div>
-
-    <h2>By App</h2>
-    <div class="app-stats">
+    <div id="app-stats-panel" class="app-stats" style="display: none;">
         <table>
             <tr><th>App</th><th>Total</th><th>Sent</th><th>Dropped</th></tr>
             <tbody id="app-stats-body">{app_stats_rows}</tbody>
@@ -204,6 +202,7 @@ DASHBOARD_HTML = """
     <div style="margin-bottom: 20px; display: flex; gap: 10px;">
         <a href="/rules" class="ai-button" style="text-decoration: none;">Manage Rules</a>
         <a href="/status" class="ai-button" style="text-decoration: none; background: #374151;">System Status</a>
+        <a href="/debug" class="ai-button" style="text-decoration: none; background: #374151;">Logs</a>
     </div>
 
     <h2>Recent Notifications</h2>
@@ -228,6 +227,12 @@ DASHBOARD_HTML = """
     <script>
         let allNotifications = [];
         let allApps = new Set();
+        let appStatsVisible = false;
+
+        function toggleAppStats() {{
+            appStatsVisible = !appStatsVisible;
+            document.getElementById('app-stats-panel').style.display = appStatsVisible ? 'block' : 'none';
+        }}
 
         const truncate = (s, len) => s && s.length > len ? s.slice(0, len) + '…' : (s || '');
         const esc = s => (s || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');

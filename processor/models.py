@@ -95,14 +95,21 @@ class Message:
             body=req.body,
             timestamp=req.timestamp or datetime.utcnow(),
         )
-        # Extract phone number and set action URL for phone/messages
-        if msg.app in ('phone', 'messages', 'facetime'):
-            # Try to extract number from text first
-            number = extract_phone_number(msg.title) or extract_phone_number(msg.body)
-            # Fall back to contact lookup
-            if not number:
-                number = lookup_contact(msg.title)
-            if number:
+        # Try to get phone number - first from text, then from contacts
+        number = extract_phone_number(msg.title) or extract_phone_number(msg.body)
+        contact_matched = False
+        if not number:
+            number = lookup_contact(msg.title)
+            contact_matched = bool(number)
+
+        if number:
+            # Enrich title with phone number for dumbphone display
+            # Only add if it's a contact match (not if number was already in title)
+            if contact_matched:
+                msg.title = f"{msg.title} ({number})"
+
+            # Set action URL for phone/messages/facetime
+            if msg.app in ('phone', 'messages', 'facetime'):
                 if msg.app == 'phone':
                     msg.action_url = f"tel:{number}"
                 else:
