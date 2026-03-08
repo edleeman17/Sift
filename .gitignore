@@ -46,3 +46,4 @@ Thumbs.db
 
 # AI instructions (keep locally, don't publish)
 CLAUDE.md
+ollama-data/
