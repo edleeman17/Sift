@@ -35,4 +35,4 @@ def list_commands() -> list[str]:
 
 
 # Import all command modules to trigger decorator registration
-from commands import system, weather, todo, info, comms, utility
+from commands import system, weather, todo, info, comms, utility, parking, help

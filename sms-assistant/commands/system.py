@@ -1,9 +1,11 @@
-"""System commands: PING, RESET, LOCATE."""
+"""System commands: PING, RESET, LOCATE, EMERGENCY."""
 
 import json
 import logging
 import os
 import subprocess
+from datetime import datetime, timedelta
+from pathlib import Path
 
 import httpx
 
@@ -14,6 +16,9 @@ log = logging.getLogger(__name__)
 PI_HOST = os.getenv("PI_HOST", "")
 BARK_URL = os.getenv("BARK_URL", "")
 BARK_DEVICE_KEY = os.getenv("BARK_DEVICE_KEY", "")
+
+# Emergency mode state file - shared with processor via volume mount
+EMERGENCY_FILE = Path(os.path.expanduser("~/.sms-assistant/emergency.json"))
 
 
 @register_command("PING")
@@ -127,3 +132,40 @@ async def handle_locate(args: str = "") -> str:
     except Exception as e:
         log.error(f"Locate error: {e}")
         return f"Locate failed: {str(e)[:80]}"
+
+
+@register_command("EMERGENCY")
+async def handle_emergency(args: str = "") -> str:
+    """Toggle emergency mode - bypasses all notification drop rules."""
+    args = args.strip().upper()
+
+    if args == "ON":
+        state = {
+            "active": True,
+            "enabled_at": datetime.now().isoformat(),
+            "expires_at": (datetime.now() + timedelta(hours=2)).isoformat()
+        }
+        EMERGENCY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        EMERGENCY_FILE.write_text(json.dumps(state))
+        log.info("Emergency mode enabled for 2 hours")
+        return "EMERGENCY MODE ON - All notifications forwarded for 2 hours"
+
+    elif args == "OFF":
+        EMERGENCY_FILE.unlink(missing_ok=True)
+        log.info("Emergency mode disabled")
+        return "Emergency mode disabled"
+
+    else:  # STATUS (no args or anything else)
+        if EMERGENCY_FILE.exists():
+            try:
+                state = json.loads(EMERGENCY_FILE.read_text())
+                if state.get("active"):
+                    expires = datetime.fromisoformat(state["expires_at"])
+                    if datetime.now() > expires:
+                        EMERGENCY_FILE.unlink()
+                        return "Emergency mode OFF (expired)"
+                    remaining = int((expires - datetime.now()).total_seconds() / 60)
+                    return f"Emergency mode ACTIVE - {remaining} min remaining"
+            except Exception:
+                pass
+        return "Emergency mode OFF"

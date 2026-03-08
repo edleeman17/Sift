@@ -17,7 +17,9 @@ log = logging.getLogger(__name__)
 CONTACTS_FILE = Path(os.getenv("CONTACTS_FILE", os.path.expanduser("~/docker-projects/notification-forwarder/contacts.json")))
 MESSAGES_DB = Path(os.getenv("MESSAGES_DB", os.path.expanduser("~/Library/Messages/chat.db")))
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:1.5b")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
+DEFAULT_LAT = float(os.getenv("DEFAULT_LAT", "51.5074"))
+DEFAULT_LON = float(os.getenv("DEFAULT_LON", "-0.1278"))
 
 
 def load_contacts() -> dict[str, str]:
@@ -105,24 +107,42 @@ async def handle_contact(args: str = "") -> str:
 
     log.info(f"CONTACT lookup: {args}")
 
-    # Add location context if not specified
-    search_query = args
-    if "uk" not in args.lower():
-        search_query = f"{args} UK"
+    # Create viewbox around default location (~50km radius)
+    # viewbox format: west,north,east,south (lon,lat,lon,lat)
+    viewbox_delta = 0.5  # ~50km at UK latitudes
+    viewbox = f"{DEFAULT_LON - viewbox_delta},{DEFAULT_LAT + viewbox_delta},{DEFAULT_LON + viewbox_delta},{DEFAULT_LAT - viewbox_delta}"
 
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
+            # First try with viewbox for local results
             resp = await client.get(
                 "https://nominatim.openstreetmap.org/search",
                 params={
-                    "q": search_query,
+                    "q": args,
                     "format": "json",
                     "limit": 3,
                     "addressdetails": 1,
                     "extratags": 1,
+                    "viewbox": viewbox,
+                    "bounded": 0,  # Prefer but don't restrict to viewbox
                 },
                 headers={"User-Agent": "sms-assistant/1.0"}
             )
+
+            # If no results, try broader UK search
+            if resp.status_code == 200 and not resp.json():
+                log.info(f"CONTACT: no local results, trying UK-wide search")
+                resp = await client.get(
+                    "https://nominatim.openstreetmap.org/search",
+                    params={
+                        "q": f"{args} UK",
+                        "format": "json",
+                        "limit": 3,
+                        "addressdetails": 1,
+                        "extratags": 1,
+                    },
+                    headers={"User-Agent": "sms-assistant/1.0"}
+                )
 
             if resp.status_code != 200 or not resp.json():
                 return f"No results for '{args}'"

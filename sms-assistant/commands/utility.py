@@ -16,7 +16,7 @@ from commands import register_command
 log = logging.getLogger(__name__)
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:1.5b")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
 DEFAULT_LAT = os.getenv("DEFAULT_LAT", "51.5074")
 DEFAULT_LON = os.getenv("DEFAULT_LON", "-0.1278")
 HOME_ADDRESS = os.getenv("HOME_ADDRESS", "")
