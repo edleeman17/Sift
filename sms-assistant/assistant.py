@@ -13,6 +13,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
+from dotenv import load_dotenv
+
+# Load .env file from script directory
+load_dotenv(Path(__file__).parent / ".env")
+
 import emoji
 import httpx
 
