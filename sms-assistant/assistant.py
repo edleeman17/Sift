@@ -312,8 +312,63 @@ def split_message(message: str, max_len: int = 160) -> list[str]:
     return chunks
 
 
+# Track consecutive send failures for auto-recovery
+_consecutive_failures = 0
+_MAX_FAILURES_BEFORE_RESTART = 3
+
+
+def restart_messages_app():
+    """Restart Messages.app to recover from hung state."""
+    log.warning("Restarting Messages.app to recover from failures...")
+    try:
+        # Quit Messages
+        subprocess.run(
+            ["osascript", "-e", 'tell application "Messages" to quit'],
+            capture_output=True,
+            timeout=5
+        )
+        time.sleep(2)
+        # Reopen Messages
+        subprocess.run(["open", "-a", "Messages"], capture_output=True, timeout=5)
+        time.sleep(3)
+        log.info("Messages.app restarted successfully")
+        return True
+    except Exception as e:
+        log.error(f"Failed to restart Messages.app: {e}")
+        return False
+
+
+def _send_single_sms(recipient: str, escaped_message: str) -> bool:
+    """Send a single SMS chunk. Returns True on success."""
+    applescript = f'''
+    tell application "Messages"
+        set targetService to 1st account whose service type = SMS
+        set targetBuddy to participant "{recipient}" of targetService
+        send "{escaped_message}" to targetBuddy
+    end tell
+    '''
+
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", applescript],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        return result.returncode == 0
+    except subprocess.TimeoutExpired:
+        return False
+    except Exception:
+        return False
+
+
 def send_sms_reply(recipient: str, message: str):
-    """Send SMS reply via Messages.app using AppleScript. Splits long messages."""
+    """Send SMS reply via Messages.app using AppleScript. Splits long messages.
+
+    Auto-recovers by restarting Messages.app after consecutive failures.
+    """
+    global _consecutive_failures
+
     # Convert emojis to text codes if phone doesn't support them
     if not SUPPORTS_EMOJI:
         message = emoji.demojize(message)
@@ -331,29 +386,29 @@ def send_sms_reply(recipient: str, message: str):
         escaped_message = escaped_message.replace(""", '\\"')  # Smart quote
         escaped_message = escaped_message.replace(""", '\\"')  # Smart quote
 
-        applescript = f'''
-        tell application "Messages"
-            set targetService to 1st account whose service type = SMS
-            set targetBuddy to participant "{recipient}" of targetService
-            send "{escaped_message}" to targetBuddy
-        end tell
-        '''
+        # Try to send
+        if _send_single_sms(recipient, escaped_message):
+            log.info(f"Sent SMS {i+1}/{len(chunks)} to {recipient}: {chunk[:40]}...")
+            _consecutive_failures = 0  # Reset on success
+        else:
+            _consecutive_failures += 1
+            log.error(f"SMS send failed (failure {_consecutive_failures}/{_MAX_FAILURES_BEFORE_RESTART})")
 
-        try:
-            result = subprocess.run(
-                ["osascript", "-e", applescript],
-                capture_output=True,
-                text=True,
-                timeout=10
-            )
-            if result.returncode == 0:
-                log.info(f"Sent SMS {i+1}/{len(chunks)} to {recipient}: {chunk[:40]}...")
+            # Auto-recover after too many failures
+            if _consecutive_failures >= _MAX_FAILURES_BEFORE_RESTART:
+                log.warning(f"Too many failures, attempting auto-recovery...")
+                if restart_messages_app():
+                    _consecutive_failures = 0
+                    # Retry this chunk after restart
+                    if _send_single_sms(recipient, escaped_message):
+                        log.info(f"Retry successful! Sent SMS {i+1}/{len(chunks)}")
+                    else:
+                        log.error("Retry after restart also failed")
+                        success = False
+                else:
+                    success = False
             else:
-                log.error(f"AppleScript error: {result.stderr}")
                 success = False
-        except Exception as e:
-            log.error(f"Failed to send reply: {e}")
-            success = False
 
         # Delay between chunks to help preserve order
         if i < len(chunks) - 1:
