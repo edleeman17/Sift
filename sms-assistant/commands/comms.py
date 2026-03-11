@@ -14,8 +14,8 @@ from commands import register_command
 
 log = logging.getLogger(__name__)
 
-CONTACTS_FILE = Path(os.getenv("CONTACTS_FILE", os.path.expanduser("~/docker-projects/notification-forwarder/contacts.json")))
-MESSAGES_DB = Path(os.getenv("MESSAGES_DB", os.path.expanduser("~/Library/Messages/chat.db")))
+CONTACTS_FILE = Path(os.path.expanduser(os.getenv("CONTACTS_FILE", "~/docker-projects/notification-forwarder/contacts.json")))
+MESSAGES_DB = Path(os.path.expanduser(os.getenv("MESSAGES_DB", "~/Library/Messages/chat.db")))
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
 DEFAULT_LAT = float(os.getenv("DEFAULT_LAT", "51.5074"))
@@ -88,13 +88,18 @@ async def handle_call(args: str = "") -> str:
     if not matches:
         return f"No matches for '{args}'"
 
-    # Perfect or near-perfect match - return single result
-    if matches[0][2] >= 0.95:
-        name, number, _ = matches[0]
+    # Get all high-confidence matches (score >= 0.9)
+    high_matches = [(n, num, s) for n, num, s in matches if s >= 0.9]
+
+    if len(high_matches) == 1:
+        name, number, _ = high_matches[0]
         return f"{name}: {number}"
 
-    # Multiple fuzzy matches - return top 5
-    top = matches[:5]
+    if high_matches:
+        top = high_matches[:5]
+    else:
+        top = matches[:5]
+
     lines = [f"{name}: {number}" for name, number, _ in top]
     return "\n".join(lines)
 

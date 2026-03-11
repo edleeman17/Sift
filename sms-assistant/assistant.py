@@ -37,9 +37,9 @@ DUMBPHONE_NUMBER = os.getenv("DUMBPHONE_NUMBER", "")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
 POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "10"))
-MESSAGES_DB = Path(os.getenv("MESSAGES_DB", os.path.expanduser("~/Library/Messages/chat.db")))
-STATE_FILE = Path(os.getenv("STATE_FILE", os.path.expanduser("~/.sms-assistant/state.json")))
-HEARTBEAT_FILE = Path(os.getenv("HEARTBEAT_FILE", os.path.expanduser("~/.sms-assistant/heartbeat")))
+MESSAGES_DB = Path(os.path.expanduser(os.getenv("MESSAGES_DB", "~/Library/Messages/chat.db")))
+STATE_FILE = Path(os.path.expanduser(os.getenv("STATE_FILE", "~/.sms-assistant/state.json")))
+HEARTBEAT_FILE = Path(os.path.expanduser(os.getenv("HEARTBEAT_FILE", "~/.sms-assistant/heartbeat")))
 SUPPORTS_EMOJI = os.getenv("SUPPORTS_EMOJI", "false").lower() in ("true", "1", "yes")
 
 # Command types for LLM classification fallback
@@ -282,7 +282,14 @@ def format_for_sms(message: str) -> str:
 
 
 def split_message(message: str, max_len: int = 160) -> list[str]:
-    """Split a long message into SMS-sized chunks, breaking at word boundaries."""
+    """Split a long message into SMS-sized chunks, preferring newline breaks."""
+    # If message has multiple lines, split on them (each line becomes a separate SMS)
+    if '\n' in message:
+        lines = [line.strip() for line in message.split('\n') if line.strip()]
+        # If all lines fit individually, send each as separate SMS
+        if all(len(line) <= max_len for line in lines):
+            return lines
+
     if len(message) <= max_len:
         return [message]
 
@@ -295,10 +302,12 @@ def split_message(message: str, max_len: int = 160) -> list[str]:
             chunks.append(message)
             break
 
-        # Find last space within limit
-        split_at = message.rfind(' ', 0, effective_max)
+        # Prefer newline break, then space
+        split_at = message.rfind('\n', 0, effective_max)
         if split_at == -1:
-            # No space found, hard split
+            split_at = message.rfind(' ', 0, effective_max)
+        if split_at == -1:
+            # No break found, hard split
             split_at = effective_max
 
         chunks.append(message[:split_at].strip())

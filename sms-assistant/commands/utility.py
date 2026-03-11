@@ -306,7 +306,7 @@ Message: "{args}"
 Reply with ONLY the search terms."""
 
     search_terms = await ollama_generate(search_prompt)
-    if not search_terms:
+    if not search_terms or search_terms.startswith("Sorry,"):
         search_terms = args
 
     try:

@@ -14,8 +14,8 @@ log = logging.getLogger(__name__)
 DEFAULT_LOCATION = os.getenv("DEFAULT_LOCATION", "London,UK")
 DEFAULT_LAT = os.getenv("DEFAULT_LAT", "51.5074")
 DEFAULT_LON = os.getenv("DEFAULT_LON", "-0.1278")
-OBSIDIAN_TODO = os.getenv("OBSIDIAN_TODO", os.path.expanduser("~/obsidian/_todo.md"))
-DATA_FILE = Path(os.getenv("DATA_FILE", os.path.expanduser("~/.sms-assistant/data.json")))
+OBSIDIAN_TODO = os.path.expanduser(os.getenv("OBSIDIAN_TODO", "~/obsidian/_todo.md"))
+DATA_FILE = Path(os.path.expanduser(os.getenv("DATA_FILE", "~/.sms-assistant/data.json")))
 
 
 def load_data() -> dict:
