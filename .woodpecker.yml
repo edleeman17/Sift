@@ -1,0 +1,29 @@
+# Builds the processor image on every push to master and pushes it to the
+# private registry, then restarts the live Nomad job so it actually runs
+# what was just built (force_pull is set on the job spec - without that
+# this would just restart the same stale cached image).
+#
+# Single-arch (amd64) only, unlike garden's multi-arch build - unlike
+# garden this job is hard-pinned to macmini (see sift-processor.nomad.hcl's
+# pinned_reason) and never floats to the cluster's arm64 nodes, so building
+# for those would just be wasted time.
+steps:
+  build-and-push:
+    image: docker:27-cli
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    commands:
+      - docker buildx build -t registry.lan/sift-processor:latest --push processor/
+    when:
+      branch: master
+      event: push
+
+  redeploy:
+    image: hashicorp/nomad:2.0.5
+    environment:
+      NOMAD_ADDR: http://192.168.1.95:4646
+    commands:
+      - nomad job restart -yes -on-error=fail -reschedule sift-processor
+    when:
+      branch: master
+      event: push
