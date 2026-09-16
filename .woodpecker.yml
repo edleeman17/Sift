@@ -3,10 +3,11 @@
 # run what was just built (force_pull is set on both job specs - without
 # that a restart would just be the same stale cached image).
 #
-# Single-arch (amd64) only, unlike garden's multi-arch build - unlike
-# garden neither job floats to the cluster's arm64 nodes: sift-processor
-# is hard-pinned to macmini (see its pinned_reason), and
-# sift-sms-assistant just hasn't been scheduled onto one yet in practice.
+# sift-processor is single-arch (amd64) - it's hard-pinned to macmini (see
+# its pinned_reason) and will never float to an arm64 node. sift-sms-
+# assistant IS multi-arch, matching garden's pattern: it isn't pinned to
+# any node, and really did get scheduled onto an arm64 Pi the first time -
+# a single-arch image there just fails to pull ("no matching manifest").
 clone:
   git:
     image: docker.io/woodpeckerci/plugin-git
@@ -22,7 +23,7 @@ steps:
       - /var/run/docker.sock:/var/run/docker.sock
     commands:
       - docker buildx build -t registry.lan/sift-processor:latest --push processor/
-      - docker buildx build -t registry.lan/sift-sms-assistant:latest --push sms-assistant/
+      - docker buildx build --platform linux/amd64,linux/arm64 -t registry.lan/sift-sms-assistant:latest --push sms-assistant/
     when:
       branch: master
       event: push
