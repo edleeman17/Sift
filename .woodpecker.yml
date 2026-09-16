@@ -7,6 +7,14 @@
 # garden this job is hard-pinned to macmini (see sift-processor.nomad.hcl's
 # pinned_reason) and never floats to the cluster's arm64 nodes, so building
 # for those would just be wasted time.
+clone:
+  git:
+    image: docker.io/woodpeckerci/plugin-git
+    settings:
+      # git.lan's cert is mkcert-issued - the clone step doesn't trust
+      # that CA by default, same fix nomad-job-specs' own pipeline needed.
+      skip_verify: true
+
 steps:
   build-and-push:
     image: docker:27-cli
