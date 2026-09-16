@@ -1,12 +1,13 @@
 """SMS Assistant command handlers.
 
 Commands are organized by category:
-- system: PING, RESET, LOCATE
+- system: PING, RESET, EMERGENCY
 - weather: WEATHER, RAIN
 - todo: TODO, DONE
 - info: BIN, ICE, INSURANCE, BRIEFING
-- comms: CALL, CONTACT, MESSAGES
-- utility: NAV, TIMER, REMIND, SEARCH, BORED
+- comms: CALL, CONTACT
+- utility: NAV, TIMER, REMIND, BORED
+- parking: RINGGO
 
 Each command handler is an async function that takes optional args and returns a string response.
 """

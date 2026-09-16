@@ -1,12 +1,12 @@
-# Builds the processor image on every push to master and pushes it to the
-# private registry, then restarts the live Nomad job so it actually runs
-# what was just built (force_pull is set on the job spec - without that
-# this would just restart the same stale cached image).
+# Builds both images on every push to master and pushes them to the
+# private registry, then restarts the live Nomad jobs so they actually
+# run what was just built (force_pull is set on both job specs - without
+# that a restart would just be the same stale cached image).
 #
 # Single-arch (amd64) only, unlike garden's multi-arch build - unlike
-# garden this job is hard-pinned to macmini (see sift-processor.nomad.hcl's
-# pinned_reason) and never floats to the cluster's arm64 nodes, so building
-# for those would just be wasted time.
+# garden neither job floats to the cluster's arm64 nodes: sift-processor
+# is hard-pinned to macmini (see its pinned_reason), and
+# sift-sms-assistant just hasn't been scheduled onto one yet in practice.
 clone:
   git:
     image: docker.io/woodpeckerci/plugin-git
@@ -22,6 +22,7 @@ steps:
       - /var/run/docker.sock:/var/run/docker.sock
     commands:
       - docker buildx build -t registry.lan/sift-processor:latest --push processor/
+      - docker buildx build -t registry.lan/sift-sms-assistant:latest --push sms-assistant/
     when:
       branch: master
       event: push
@@ -32,6 +33,7 @@ steps:
       NOMAD_ADDR: http://192.168.1.95:4646
     commands:
       - nomad job restart -yes -on-error=fail -reschedule sift-processor
+      - nomad job restart -yes -on-error=fail -reschedule sift-sms-assistant
     when:
       branch: master
       event: push

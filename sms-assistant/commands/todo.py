@@ -1,104 +1,132 @@
-"""Task commands: TODO, DONE."""
+"""Task commands: TODO, DONE.
+
+Rewritten to hit ingest.lan (a general life-inbox app already running on
+the cluster - see GET /openapi.json there for the full API) instead of an
+Obsidian _todo.md file, which no longer exists on this setup. TODO reads
+across every item with status "todo" regardless of its `source` (dictation,
+raycast, ios-text, ...) - this is meant to be your one general todo list,
+not a phone-only one. New items added here are tagged source=sms-assistant
+so they're identifiable in ingest's own UI later.
+"""
 
 import logging
 import os
-from pathlib import Path
+from difflib import SequenceMatcher
+
+import httpx
 
 from commands import register_command
 
 log = logging.getLogger(__name__)
 
-OBSIDIAN_TODO = os.getenv("OBSIDIAN_TODO", os.path.expanduser("~/obsidian/_todo.md"))
+INGEST_URL = os.getenv("INGEST_URL", "https://ingest.lan")
 
 
 @register_command("TODO")
 async def handle_todo(args: str = "") -> str:
-    """Add or read TODO items from Obsidian _todo.md file."""
-    todo_file = Path(OBSIDIAN_TODO)
+    """List open todos, or add a new one.
 
-    # No task provided - read back TODOs
+    TODO            List open todos (most recent first)
+    TODO [task]      Add a new todo
+    """
     if not args:
         try:
-            if not todo_file.exists():
-                return "No TODOs yet"
-
-            content = todo_file.read_text()
-            # Find uncompleted tasks (- [ ])
-            uncompleted = [line.strip() for line in content.split("\n")
-                          if line.strip().startswith("- [ ]")]
-
-            if not uncompleted:
-                return "All TODOs complete!"
-
-            # Format for SMS - strip the "- [ ] " prefix, show all
-            items = [item[6:] for item in uncompleted]
-            result = "\n".join(f"{i+1}. {item}" for i, item in enumerate(items))
-
-            return result
-
+            async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
+                resp = await client.get(f"{INGEST_URL}/api/items", params={"status": "todo", "limit": 20})
+                if resp.status_code != 200:
+                    return f"Todo list unavailable: HTTP {resp.status_code}"
+                items = resp.json().get("items", [])
         except Exception as e:
-            log.error(f"TODO read error: {e}")
-            return f"Failed to read TODOs: {str(e)[:80]}"
+            log.error(f"TODO list error: {e}")
+            return f"Todo list unavailable: {str(e)[:60]}"
 
-    # Task provided - add it
+        if not items:
+            return "No open TODOs"
+
+        lines = []
+        for i, item in enumerate(items):
+            text = item.get("summary") or item.get("raw_text") or ""
+            lines.append(f"{i + 1}. {text[:60]}")
+        return "\n".join(lines)
+
     try:
-        todo_line = f"- [ ] {args}\n"
-
-        with open(todo_file, "a") as f:
-            f.write(todo_line)
-
-        log.info(f"Added TODO to {todo_file}: {args}")
-        return f"Added: {args[:100]}"
-
+        async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
+            resp = await client.post(
+                f"{INGEST_URL}/ingest",
+                json={"source": "sms-assistant", "raw_text": args},
+            )
+            if resp.status_code != 200:
+                return f"Failed to add: HTTP {resp.status_code}"
+            log.info(f"Added TODO via ingest.lan: {args}")
+            return f"Added: {args[:100]}"
     except Exception as e:
-        log.error(f"TODO error: {e}")
+        log.error(f"TODO add error: {e}")
         return f"Failed to add TODO: {str(e)[:80]}"
 
 
 @register_command("DONE")
 async def handle_done(args: str = "") -> str:
-    """Mark TODO items as complete by their number."""
-    todo_file = Path(OBSIDIAN_TODO)
+    """Mark a todo as complete by number (from the last TODO list) or by
+    matching text.
 
-    if not todo_file.exists():
-        return "No TODOs to complete"
-
-    # Parse numbers - accept "1,2,3" or "1 2 3" or just "1"
-    try:
-        nums = [int(n.strip()) for n in args.replace(",", " ").split()]
-    except ValueError:
-        return "Usage: DONE 1,2,3 or DONE 1 2 3"
-
-    if not nums:
-        return "Usage: DONE 1,2,3"
+    DONE 2          Mark item #2 from the last TODO list as done
+    DONE muji       Mark the todo matching "muji" as done
+    """
+    if not args:
+        return "Usage: DONE [number from TODO list] or DONE [matching text]"
 
     try:
-        content = todo_file.read_text()
-        lines = content.split("\n")
-
-        # Find uncompleted tasks and their line indices
-        uncompleted = []
-        for i, line in enumerate(lines):
-            if line.strip().startswith("- [ ]"):
-                uncompleted.append(i)
-
-        completed_tasks = []
-        for num in nums:
-            if 1 <= num <= len(uncompleted):
-                line_idx = uncompleted[num - 1]
-                # Mark as done
-                lines[line_idx] = lines[line_idx].replace("- [ ]", "- [x]", 1)
-                task_text = lines[line_idx].replace("- [x]", "").strip()
-                completed_tasks.append(task_text[:30])
-
-        # Write back
-        todo_file.write_text("\n".join(lines))
-
-        if completed_tasks:
-            return f"Done: {', '.join(completed_tasks)}"
-        else:
-            return f"Invalid numbers. You have {len(uncompleted)} TODOs."
-
+        async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
+            resp = await client.get(f"{INGEST_URL}/api/items", params={"status": "todo", "limit": 20})
+            if resp.status_code != 200:
+                return f"Todo list unavailable: HTTP {resp.status_code}"
+            items = resp.json().get("items", [])
     except Exception as e:
-        log.error(f"DONE error: {e}")
+        log.error(f"DONE lookup error: {e}")
+        return f"Todo list unavailable: {str(e)[:60]}"
+
+    if not items:
+        return "No open TODOs"
+
+    target = None
+
+    # Numeric - index into the same ordering TODO would have shown
+    if args.strip().isdigit():
+        idx = int(args.strip()) - 1
+        if 0 <= idx < len(items):
+            target = items[idx]
+        else:
+            return f"Invalid number. You have {len(items)} open TODOs."
+    else:
+        # Fuzzy match against summary/raw_text
+        query = args.strip().lower()
+        best_score = 0.0
+        for item in items:
+            text = (item.get("summary") or item.get("raw_text") or "").lower()
+            if query in text:
+                score = 0.9
+            else:
+                score = SequenceMatcher(None, query, text).ratio()
+            if score > best_score:
+                best_score = score
+                target = item
+        if best_score < 0.3:
+            target = None
+
+    if not target:
+        return f"No matching TODO for '{args}'"
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
+            resp = await client.patch(
+                f"{INGEST_URL}/api/items/{target['id']}",
+                json={"status": "done"},
+            )
+            if resp.status_code != 200:
+                return f"Failed to complete: HTTP {resp.status_code}"
+    except Exception as e:
+        log.error(f"DONE patch error: {e}")
         return f"Failed: {str(e)[:80]}"
+
+    text = (target.get("summary") or target.get("raw_text") or "")[:40]
+    return f"Done: {text}"

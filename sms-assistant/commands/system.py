@@ -1,4 +1,7 @@
-"""System commands: PING, RESET, LOCATE, EMERGENCY."""
+"""System commands: PING, RESET, EMERGENCY.
+
+LOCATE (Bark-based alarm) dropped - no Bark instance confirmed running.
+"""
 
 import json
 import logging
@@ -13,57 +16,48 @@ from commands import register_command
 
 log = logging.getLogger(__name__)
 
-PI_HOST = os.getenv("PI_HOST", "")
-BARK_URL = os.getenv("BARK_URL", "")
-BARK_DEVICE_KEY = os.getenv("BARK_DEVICE_KEY", "")
+PI_HOST = os.getenv("PI_HOST", "ed@eink.lan")
+PI_HEALTH_URL = os.getenv("PI_HEALTH_URL", "http://eink.lan:8081/health")
+SSH_KEY_PATH = os.getenv("SSH_KEY_PATH", "/app/secrets/eink_ssh_key")
 
-# Emergency mode state file - shared with processor via volume mount
-EMERGENCY_FILE = Path(os.path.expanduser("~/.sms-assistant/emergency.json"))
+# Emergency mode state file - shared with sift-processor via volume mount
+# (see routes/notification.py's EMERGENCY_FILE, same path)
+EMERGENCY_FILE = Path("/app/sms-assistant-state/emergency.json")
 
 
 @register_command("PING")
 async def handle_ping(args: str = "") -> str:
     """Check Pi and iPhone connection status."""
-    log.info(f"Checking status on {PI_HOST}")
+    log.info(f"Checking status via {PI_HEALTH_URL}")
 
     try:
-        result = subprocess.run(
-            ["ssh", "-o", "ConnectTimeout=5", PI_HOST, "curl -s http://localhost:8081/health"],
-            capture_output=True,
-            text=True,
-            timeout=15
-        )
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(PI_HEALTH_URL)
+            if resp.status_code != 200:
+                return "Pi unreachable or ancs-bridge not running"
 
-        if result.returncode == 0:
-            try:
-                health = json.loads(result.stdout)
-                connected = health.get("phone_connected", False)
-                last_activity = health.get("last_activity_ago")
-                battery = health.get("battery")
+            health = resp.json()
+            connected = health.get("phone_connected", False)
+            last_activity = health.get("last_activity_ago")
+            battery = health.get("battery")
 
-                if connected:
-                    parts = ["Pi OK. iPhone connected."]
-                    if battery is not None:
-                        parts.append(f"Battery {battery}%.")
-                    if last_activity:
-                        parts.append(f"Last notif {last_activity}s ago.")
-                    return " ".join(parts)
-                else:
-                    return "Pi OK but iPhone NOT connected"
-            except Exception:
-                return "Pi reachable but health check failed"
-        else:
-            return "Pi unreachable or ancs-bridge not running"
+            if connected:
+                parts = ["Pi OK. iPhone connected."]
+                if battery is not None:
+                    parts.append(f"Battery {battery}%.")
+                if last_activity:
+                    parts.append(f"Last notif {last_activity}s ago.")
+                return " ".join(parts)
+            else:
+                return "Pi OK but iPhone NOT connected"
 
-    except subprocess.TimeoutExpired:
-        return "Pi connection timed out"
     except Exception as e:
         return f"Status check failed: {str(e)[:80]}"
 
 
 @register_command("RESET")
 async def handle_reset(args: str = "") -> str:
-    """Reset Bluetooth stack on Pi remotely."""
+    """Reset Bluetooth stack on the Pi remotely."""
     log.info(f"Executing remote reset on {PI_HOST}")
 
     reset_commands = """
@@ -87,10 +81,19 @@ async def handle_reset(args: str = "") -> str:
 
     try:
         result = subprocess.run(
-            ["ssh", "-o", "ConnectTimeout=10", PI_HOST, reset_commands],
+            [
+                "ssh",
+                "-i", SSH_KEY_PATH,
+                "-o", "ConnectTimeout=10",
+                # No interactive host-key prompt possible in a container -
+                # accept-new trusts it on first contact, same trust model
+                # as a human running this by hand for the first time.
+                "-o", "StrictHostKeyChecking=accept-new",
+                PI_HOST, reset_commands,
+            ],
             capture_output=True,
             text=True,
-            timeout=60
+            timeout=60,
         )
 
         if result.returncode == 0:
@@ -108,32 +111,6 @@ async def handle_reset(args: str = "") -> str:
         return f"Reset error: {str(e)[:100]}"
 
 
-@register_command("LOCATE")
-async def handle_locate(args: str = "") -> str:
-    """Send loud alarm notification to iPhone via Bark."""
-    log.info("Sending LOCATE alarm via Bark")
-
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(
-                f"{BARK_URL}/{BARK_DEVICE_KEY}/LOCATE/Finding your iPhone!",
-                params={
-                    "sound": "alarm",
-                    "level": "critical",
-                    "volume": "10",
-                }
-            )
-
-            if resp.status_code == 200:
-                return "Alarm sent to iPhone!"
-            else:
-                return f"Bark error: {resp.status_code}"
-
-    except Exception as e:
-        log.error(f"Locate error: {e}")
-        return f"Locate failed: {str(e)[:80]}"
-
-
 @register_command("EMERGENCY")
 async def handle_emergency(args: str = "") -> str:
     """Toggle emergency mode - bypasses all notification drop rules."""
@@ -143,7 +120,7 @@ async def handle_emergency(args: str = "") -> str:
         state = {
             "active": True,
             "enabled_at": datetime.now().isoformat(),
-            "expires_at": (datetime.now() + timedelta(hours=2)).isoformat()
+            "expires_at": (datetime.now() + timedelta(hours=2)).isoformat(),
         }
         EMERGENCY_FILE.parent.mkdir(parents=True, exist_ok=True)
         EMERGENCY_FILE.write_text(json.dumps(state))

@@ -14,8 +14,8 @@ log = logging.getLogger(__name__)
 DEFAULT_LOCATION = os.getenv("DEFAULT_LOCATION", "London,UK")
 DEFAULT_LAT = os.getenv("DEFAULT_LAT", "51.5074")
 DEFAULT_LON = os.getenv("DEFAULT_LON", "-0.1278")
-OBSIDIAN_TODO = os.path.expanduser(os.getenv("OBSIDIAN_TODO", "~/obsidian/_todo.md"))
-DATA_FILE = Path(os.path.expanduser(os.getenv("DATA_FILE", "~/.sms-assistant/data.json")))
+INGEST_URL = os.getenv("INGEST_URL", "https://ingest.lan")
+DATA_FILE = Path(os.path.expanduser(os.getenv("DATA_FILE", "/app/data/data.json")))
 
 
 def load_data() -> dict:
@@ -155,22 +155,21 @@ async def handle_briefing(args: str = "") -> str:
     if "No rain" not in rain:
         parts.append(rain)
 
-    # TODOs
-    todo_file = Path(OBSIDIAN_TODO)
-    if todo_file.exists():
-        try:
-            content = todo_file.read_text()
-            uncompleted = [line.strip() for line in content.split("\n")
-                          if line.strip().startswith("- [ ]")]
-            if uncompleted:
-                count = len(uncompleted)
-                preview = uncompleted[0][6:][:30]
-                if count == 1:
-                    parts.append(f"TODO: {preview}")
-                else:
-                    parts.append(f"{count} TODOs. First: {preview}")
-        except Exception:
-            pass
+    # TODOs (ingest.lan - see commands/todo.py)
+    try:
+        async with httpx.AsyncClient(timeout=5.0, verify=False) as client:
+            resp = await client.get(f"{INGEST_URL}/api/items", params={"status": "todo", "limit": 200})
+            if resp.status_code == 200:
+                items = resp.json().get("items", [])
+                if items:
+                    count = len(items)
+                    preview = (items[0].get("summary") or items[0].get("raw_text") or "")[:30]
+                    if count == 1:
+                        parts.append(f"TODO: {preview}")
+                    else:
+                        parts.append(f"{count} TODOs. First: {preview}")
+    except Exception:
+        pass
 
     # Bin day check
     if now.weekday() in (0, 1):  # Monday or Tuesday

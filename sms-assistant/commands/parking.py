@@ -12,9 +12,17 @@ from commands import register_command
 
 log = logging.getLogger(__name__)
 
-DATA_FILE = Path.home() / ".sms-assistant" / "data.json"
-STATE_FILE = Path.home() / ".sms-assistant" / "parking_state.json"
-IMESSAGE_GATEWAY = os.getenv("IMESSAGE_GATEWAY_URL", "http://localhost:8095")
+DATA_FILE = Path(os.path.expanduser(os.getenv("DATA_FILE", "/app/data/data.json")))
+STATE_FILE = Path(os.path.expanduser(os.getenv("PARKING_STATE_FILE", "/app/data/parking_state.json")))
+# KNOWN BROKEN as of the Linux rebuild: sift-sms-gateway (unlike the old
+# macOS imessage-gateway) always delivers to the dumbphone's fixed number -
+# it ignores the `recipient` field entirely (see gateway.py), because the
+# Shortcuts automation it drives has the dumbphone number hardcoded. RingGo
+# needs to text 81025, not the dumbphone, so this command will currently
+# just text the RingGo command string to yourself instead of to RingGo.
+# Needs the gateway+Shortcut made recipient-aware before this actually
+# works again - not done yet.
+IMESSAGE_GATEWAY = os.getenv("IMESSAGE_GATEWAY_URL", "http://sift-sms-gateway.service.consul:8095")
 RINGGO_SMS_NUMBER = "81025"
 
 

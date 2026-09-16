@@ -1,10 +1,12 @@
-"""Communication commands: CALL, CONTACT, MESSAGES."""
+"""Communication commands: CALL, CONTACT.
+
+MESSAGES (unread-message summary) dropped - it read Messages.app's local
+chat.db directly, which doesn't exist on Linux and has no equivalent here.
+"""
 
 import json
 import logging
 import os
-import sqlite3
-from datetime import datetime, timedelta
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -14,10 +16,7 @@ from commands import register_command
 
 log = logging.getLogger(__name__)
 
-CONTACTS_FILE = Path(os.path.expanduser(os.getenv("CONTACTS_FILE", "~/docker-projects/notification-forwarder/contacts.json")))
-MESSAGES_DB = Path(os.path.expanduser(os.getenv("MESSAGES_DB", "~/Library/Messages/chat.db")))
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
+CONTACTS_FILE = Path(os.path.expanduser(os.getenv("CONTACTS_FILE", "/app/contacts.json")))
 DEFAULT_LAT = float(os.getenv("DEFAULT_LAT", "51.5074"))
 DEFAULT_LON = float(os.getenv("DEFAULT_LON", "-0.1278"))
 
@@ -187,72 +186,3 @@ async def handle_contact(args: str = "") -> str:
         return f"Lookup failed: {str(e)[:80]}"
 
 
-async def ollama_generate(prompt: str, system: str = "") -> str:
-    """Generate response using Ollama."""
-    payload = {
-        "model": OLLAMA_MODEL,
-        "prompt": prompt,
-        "stream": False,
-    }
-    if system:
-        payload["system"] = system
-
-    try:
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            resp = await client.post(f"{OLLAMA_URL}/api/generate", json=payload)
-            if resp.status_code == 200:
-                return resp.json().get("response", "").strip()
-            else:
-                log.error(f"Ollama error: {resp.status_code} {resp.text}")
-                return "Sorry, LLM unavailable"
-    except Exception as e:
-        log.error(f"Ollama request failed: {e}")
-        return "Sorry, LLM unavailable"
-
-
-@register_command("MESSAGES")
-async def handle_messages(args: str = "") -> str:
-    """Summarize recent unread messages."""
-    try:
-        conn = sqlite3.connect(f"file:{MESSAGES_DB}?mode=ro", uri=True)
-        cursor = conn.cursor()
-
-        # Get recent unread messages (is_read = 0, is_from_me = 0)
-        day_ago = (datetime.now() - timedelta(days=1) - datetime(2001, 1, 1)).total_seconds() * 1e9
-
-        query = """
-            SELECT h.id, m.text, m.date
-            FROM message m
-            JOIN handle h ON m.handle_id = h.ROWID
-            WHERE m.is_from_me = 0
-              AND m.is_read = 0
-              AND m.text IS NOT NULL
-              AND m.date > ?
-            ORDER BY m.date DESC
-            LIMIT 20
-        """
-
-        cursor.execute(query, (day_ago,))
-        rows = cursor.fetchall()
-        conn.close()
-
-        if not rows:
-            return "No unread messages"
-
-        # Format messages for summary
-        messages_text = "\n".join([
-            f"From {row[0]}: {row[1][:100]}"
-            for row in rows
-        ])
-
-        summary_prompt = f"""Summarize these unread messages. List who messaged and key points.
-
-{messages_text}
-
-Be concise but include all important details."""
-
-        return await ollama_generate(summary_prompt)
-
-    except Exception as e:
-        log.error(f"Messages summary error: {e}")
-        return "Couldn't read messages"

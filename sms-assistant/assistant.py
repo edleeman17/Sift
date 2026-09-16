@@ -1,561 +1,163 @@
 #!/usr/bin/env python3
-"""SMS Assistant - Process incoming SMS via Messages.app and respond with LLM."""
+"""SMS Assistant - reverse channel for the dumbphone: text a command, get a reply.
 
-import asyncio
-import json
+Rewritten from the original macOS version, which polled Messages.app's
+local chat.db every 10s and replied via AppleScript - neither is possible
+on Linux. This version is event-driven instead: a Shortcuts "Message"
+Personal Automation on the iPhone (trigger: Message from the dumbphone's
+number, Run Immediately) POSTs the text straight to /incoming here, no
+polling needed. Replies go out via sift-sms-gateway's existing /send
+(the same email->Shortcuts->Send Message path already proven for outgoing
+notifications), not AppleScript.
+
+Command dispatch (commands/*.py, COMMAND_REGISTRY) is mostly unchanged
+from the original - most commands were already portable API calls, not
+Mac-specific. Ollama-dependent natural-language fallback has been dropped
+entirely (no Ollama deployed for this yet) - unmatched text just gets a
+"try HELP" reply instead of falling through to chat.
+"""
 import logging
 import os
-import sqlite3
-import subprocess
-import time
-from dataclasses import dataclass
-from datetime import datetime, timedelta
-from pathlib import Path
-from typing import Optional
-
-from dotenv import load_dotenv
-
-# Load .env file from script directory
-load_dotenv(Path(__file__).parent / ".env")
+import sys
 
 import emoji
 import httpx
+from fastapi import FastAPI
+from pydantic import BaseModel
 
-# Import commands module to trigger registration via decorators
 import commands
 from commands import get_command_handler
 from commands.utility import set_sms_sender
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
 
-# Configuration
-DUMBPHONE_NUMBER = os.getenv("DUMBPHONE_NUMBER", "")
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
-POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "10"))
-MESSAGES_DB = Path(os.path.expanduser(os.getenv("MESSAGES_DB", "~/Library/Messages/chat.db")))
-STATE_FILE = Path(os.path.expanduser(os.getenv("STATE_FILE", "~/.sms-assistant/state.json")))
-HEARTBEAT_FILE = Path(os.path.expanduser(os.getenv("HEARTBEAT_FILE", "~/.sms-assistant/heartbeat")))
+GATEWAY_URL = os.getenv("GATEWAY_URL", "http://sift-sms-gateway.service.consul:8095")
 SUPPORTS_EMOJI = os.getenv("SUPPORTS_EMOJI", "false").lower() in ("true", "1", "yes")
 
-# Command types for LLM classification fallback
-COMMANDS = ["WEATHER", "SEARCH", "MESSAGES", "CHAT"]
+app = FastAPI(title="sift-sms-assistant")
 
 
-@dataclass
-class IncomingMessage:
-    rowid: int
+class IncomingRequest(BaseModel):
     text: str
-    timestamp: datetime
-    sender: str
-
-
-def update_heartbeat():
-    """Update heartbeat file to show service is running."""
-    try:
-        HEARTBEAT_FILE.parent.mkdir(parents=True, exist_ok=True)
-        HEARTBEAT_FILE.write_text(datetime.now().isoformat())
-    except Exception:
-        pass  # Non-critical
-
-
-def load_state() -> dict:
-    """Load last processed message ID and recent replies."""
-    if STATE_FILE.exists():
-        with open(STATE_FILE) as f:
-            state = json.load(f)
-            # Ensure recent_replies exists
-            if "recent_replies" not in state:
-                state["recent_replies"] = []
-            return state
-    return {"last_rowid": 0, "recent_replies": []}
-
-
-def save_state(state: dict):
-    """Save state to disk."""
-    with open(STATE_FILE, "w") as f:
-        json.dump(state, f)
-
-
-def is_own_reply(text: str, recent_replies: list) -> bool:
-    """Check if incoming message is one of our own replies (for self-texting loop prevention)."""
-    # Strip numbering prefix like "(1/2) " for comparison
-    clean_text = text.strip()
-    if clean_text.startswith("(") and ") " in clean_text[:8]:
-        clean_text = clean_text.split(") ", 1)[-1]
-
-    for reply in recent_replies:
-        # Check if this message matches a recent reply (or chunk of one)
-        if clean_text in reply or reply in clean_text:
-            return True
-        # Also check without numbering
-        clean_reply = reply
-        if clean_reply.startswith("(") and ") " in clean_reply[:8]:
-            clean_reply = clean_reply.split(") ", 1)[-1]
-        if clean_text == clean_reply:
-            return True
-    return False
-
-
-def get_new_messages(since_rowid: int) -> list[IncomingMessage]:
-    """Fetch new messages from dumbphone number."""
-    if not DUMBPHONE_NUMBER:
-        log.warning("DUMBPHONE_NUMBER not set")
-        return []
-
-    # Normalize phone number for matching
-    number_variants = [
-        DUMBPHONE_NUMBER,
-        DUMBPHONE_NUMBER.replace("+", ""),
-        DUMBPHONE_NUMBER.replace(" ", ""),
-    ]
-
-    messages = []
-    try:
-        conn = sqlite3.connect(f"file:{MESSAGES_DB}?mode=ro", uri=True)
-        cursor = conn.cursor()
-
-        # Query for messages from the dumbphone number
-        # is_from_me = 0 means incoming message
-        query = """
-            SELECT m.ROWID, m.text, m.date, h.id
-            FROM message m
-            JOIN handle h ON m.handle_id = h.ROWID
-            WHERE m.ROWID > ?
-              AND m.is_from_me = 0
-              AND m.text IS NOT NULL
-              AND m.text != ''
-            ORDER BY m.ROWID ASC
-        """
-
-        cursor.execute(query, (since_rowid,))
-
-        for row in cursor.fetchall():
-            rowid, text, date_val, sender = row
-
-            # Check if sender matches dumbphone
-            sender_normalized = sender.replace("+", "").replace(" ", "").replace("-", "")
-            matches = any(
-                v.replace("+", "").replace(" ", "").replace("-", "") in sender_normalized
-                or sender_normalized in v.replace("+", "").replace(" ", "").replace("-", "")
-                for v in number_variants
-            )
-
-            if matches:
-                # Convert Apple's timestamp (nanoseconds since 2001-01-01)
-                timestamp = datetime(2001, 1, 1) + timedelta(seconds=date_val / 1e9)
-                messages.append(IncomingMessage(
-                    rowid=rowid,
-                    text=text.strip(),
-                    timestamp=timestamp,
-                    sender=sender
-                ))
-
-        conn.close()
-    except Exception as e:
-        log.error(f"Failed to read messages: {e}")
-
-    return messages
-
-
-async def ollama_generate(prompt: str, system: str = "") -> str:
-    """Generate response using Ollama."""
-    payload = {
-        "model": OLLAMA_MODEL,
-        "prompt": prompt,
-        "stream": False,
-    }
-    if system:
-        payload["system"] = system
-
-    try:
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            resp = await client.post(f"{OLLAMA_URL}/api/generate", json=payload)
-            if resp.status_code == 200:
-                return resp.json().get("response", "").strip()
-            else:
-                log.error(f"Ollama error: {resp.status_code} {resp.text}")
-                return "Sorry, LLM unavailable"
-    except Exception as e:
-        log.error(f"Ollama request failed: {e}")
-        return "Sorry, LLM unavailable"
-
-
-async def classify_command(text: str) -> str:
-    """Classify the incoming message into a command type."""
-    prompt = f"""Classify this SMS message into exactly ONE category.
-
-Message: "{text}"
-
-Categories:
-- WEATHER: Asking about weather, temperature, forecast, rain, etc.
-- SEARCH: Asking to look something up, search the web, find information
-- MESSAGES: Asking about unread messages, message summary, who texted
-- CHAT: General conversation, questions, anything else
-
-Reply with ONLY the category name (WEATHER, SEARCH, MESSAGES, or CHAT)."""
-
-    response = await ollama_generate(prompt)
-
-    # Extract command from response
-    for cmd in COMMANDS:
-        if cmd in response.upper():
-            return cmd
-
-    return "CHAT"  # Default to chat
-
-
-async def handle_chat(query: str) -> str:
-    """General chat/Q&A with LLM."""
-    system = """You are a helpful SMS assistant. Be concise but thorough.
-No markdown formatting. Plain text only."""
-
-    return await ollama_generate(query, system)
-
-
-async def process_message(msg: IncomingMessage) -> str:
-    """Process incoming message and return response."""
-    text = msg.text.strip()
-    text_upper = text.upper()
-
-    log.info(f"Processing: {text}")
-
-    # Parse command and args
-    parts = text_upper.split(maxsplit=1)
-    command_name = parts[0]
-    args = parts[1] if len(parts) > 1 else ""
-
-    # Special handling for RAIN TOMORROW variant
-    if text_upper in ("RAIN TOMORROW", "RAIN TOM"):
-        command_name = "RAIN"
-        args = "TOMORROW"
-
-    # Look up handler in registry
-    handler = get_command_handler(command_name)
-    if handler:
-        log.info(f"{command_name} command detected")
-        # Commands that need recipient for async callbacks
-        if command_name in ("TIMER", "REMIND"):
-            return await handler(args, recipient=msg.sender)
-        return await handler(args)
-
-    # Classify via LLM for natural language queries
-    command = await classify_command(text)
-    log.info(f"Classified as: {command}")
-
-    handler = get_command_handler(command)
-    if handler:
-        return await handler(text)
-
-    # Fallback to chat
-    return await handle_chat(text)
 
 
 def format_for_sms(message: str) -> str:
-    """Format message for dumbphone SMS display.
-
-    - Replaces newlines with ' | ' separators
-    - Cleans up list formatting
-    - Makes output more compact
-    """
-    lines = message.split('\n')
+    """Dumbphone-friendly formatting: strip markdown-ish list prefixes, join with ' | '."""
+    lines = message.split("\n")
     formatted_lines = []
-
     for line in lines:
         line = line.strip()
         if not line:
             continue
-        # Clean up bullet points: "- item" -> "item"
-        if line.startswith('- '):
+        if line.startswith("- "):
             line = line[2:]
-        # Clean up checkbox style: "- [ ] item" -> "item"
-        if line.startswith('[ ] '):
+        if line.startswith("[ ] "):
             line = line[4:]
         formatted_lines.append(line)
-
-    # Join with separator
-    return ' | '.join(formatted_lines)
+    return " | ".join(formatted_lines)
 
 
 def split_message(message: str, max_len: int = 160) -> list[str]:
     """Split a long message into SMS-sized chunks, preferring newline breaks."""
-    # If message has multiple lines, split on them (each line becomes a separate SMS)
-    if '\n' in message:
-        lines = [line.strip() for line in message.split('\n') if line.strip()]
-        # If all lines fit individually, send each as separate SMS
+    if "\n" in message:
+        lines = [line.strip() for line in message.split("\n") if line.strip()]
         if all(len(line) <= max_len for line in lines):
             return lines
 
     if len(message) <= max_len:
         return [message]
 
-    # Reserve space for numbering like "(1/3) "
     effective_max = max_len - 7
-
     chunks = []
     while message:
         if len(message) <= effective_max:
             chunks.append(message)
             break
-
-        # Prefer newline break, then space
-        split_at = message.rfind('\n', 0, effective_max)
+        split_at = message.rfind("\n", 0, effective_max)
         if split_at == -1:
-            split_at = message.rfind(' ', 0, effective_max)
+            split_at = message.rfind(" ", 0, effective_max)
         if split_at == -1:
-            # No break found, hard split
             split_at = effective_max
-
         chunks.append(message[:split_at].strip())
         message = message[split_at:].strip()
 
-    # Add numbering
     total = len(chunks)
     if total > 1:
-        chunks = [f"({i+1}/{total}) {chunk}" for i, chunk in enumerate(chunks)]
-
+        chunks = [f"({i + 1}/{total}) {chunk}" for i, chunk in enumerate(chunks)]
     return chunks
 
 
-# Track consecutive send failures for auto-recovery
-_consecutive_failures = 0
-_MAX_FAILURES_BEFORE_RESTART = 3
-
-
-def restart_messages_app():
-    """Restart Messages.app to recover from hung state."""
-    log.warning("Restarting Messages.app to recover from failures...")
-    try:
-        # Quit Messages
-        subprocess.run(
-            ["osascript", "-e", 'tell application "Messages" to quit'],
-            capture_output=True,
-            timeout=5
-        )
-        time.sleep(2)
-        # Reopen Messages
-        subprocess.run(["open", "-a", "Messages"], capture_output=True, timeout=5)
-        time.sleep(3)
-        log.info("Messages.app restarted successfully")
-        return True
-    except Exception as e:
-        log.error(f"Failed to restart Messages.app: {e}")
-        return False
-
-
-def _send_single_sms(recipient: str, escaped_message: str) -> bool:
-    """Send a single SMS chunk. Returns True on success."""
-    applescript = f'''
-    tell application "Messages"
-        set targetService to 1st account whose service type = SMS
-        set targetBuddy to participant "{recipient}" of targetService
-        send "{escaped_message}" to targetBuddy
-    end tell
-    '''
-
-    try:
-        result = subprocess.run(
-            ["osascript", "-e", applescript],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        return result.returncode == 0
-    except subprocess.TimeoutExpired:
-        return False
-    except Exception:
-        return False
-
-
 def send_sms_reply(recipient: str, message: str):
-    """Send SMS reply via Messages.app using AppleScript. Splits long messages.
-
-    Auto-recovers by restarting Messages.app after consecutive failures.
-    """
-    global _consecutive_failures
-
-    # Convert emojis to text codes if phone doesn't support them
+    """Send a reply via sift-sms-gateway (email -> Shortcuts -> Send Message),
+    not AppleScript. `recipient` is accepted for API-compatibility with the
+    command handlers (TIMER/REMIND pass msg.sender) but isn't otherwise used -
+    same as the gateway's own /send contract, the dumbphone number is fixed
+    on the phone side."""
     if not SUPPORTS_EMOJI:
         message = emoji.demojize(message)
-    # Format for dumbphone display (newlines -> separators)
     message = format_for_sms(message)
     chunks = split_message(message)
-    success = True
 
     for i, chunk in enumerate(chunks):
-        # Escape for AppleScript - handle quotes and backslashes
-        escaped_message = chunk.replace('\\', '\\\\')
-        escaped_message = escaped_message.replace('"', '\\"')
-        escaped_message = escaped_message.replace("'", "'")  # Smart quote
-        escaped_message = escaped_message.replace("'", "'")  # Smart quote
-        escaped_message = escaped_message.replace(""", '\\"')  # Smart quote
-        escaped_message = escaped_message.replace(""", '\\"')  # Smart quote
-
-        # Try to send
-        if _send_single_sms(recipient, escaped_message):
-            log.info(f"Sent SMS {i+1}/{len(chunks)} to {recipient}: {chunk[:40]}...")
-            _consecutive_failures = 0  # Reset on success
-        else:
-            _consecutive_failures += 1
-            log.error(f"SMS send failed (failure {_consecutive_failures}/{_MAX_FAILURES_BEFORE_RESTART})")
-
-            # Auto-recover after too many failures
-            if _consecutive_failures >= _MAX_FAILURES_BEFORE_RESTART:
-                log.warning(f"Too many failures, attempting auto-recovery...")
-                if restart_messages_app():
-                    _consecutive_failures = 0
-                    # Retry this chunk after restart
-                    if _send_single_sms(recipient, escaped_message):
-                        log.info(f"Retry successful! Sent SMS {i+1}/{len(chunks)}")
-                    else:
-                        log.error("Retry after restart also failed")
-                        success = False
-                else:
-                    success = False
-            else:
-                success = False
-
-        # Delay between chunks to help preserve order
-        if i < len(chunks) - 1:
-            time.sleep(1.5)
-
-    return success
-
-
-def get_ack_message(text: str) -> Optional[str]:
-    """Return acknowledgement message for long-running commands, or None for quick ones."""
-    text_upper = text.strip().upper()
-
-    # Quick commands that don't need acks
-    quick_commands = {"HELP", "PING", "TODO", "LOCATE", "WEATHER", "TIMER", "RINGGO"}
-    if text_upper in quick_commands:
-        return None
-    if text_upper.startswith("TODO "):
-        return None
-    if text_upper.startswith("DONE "):
-        return None
-    if text_upper.startswith("WEATHER "):
-        return None
-    if text_upper.startswith("TIMER "):
-        return None
-    if text_upper.startswith("CALL "):
-        return None  # Fast local lookup
-    if text_upper.startswith("CONTACT "):
-        return None  # Fast API lookup
-    if text_upper == "BORED":
-        return None
-    if text_upper == "RAIN" or text_upper.startswith("RAIN "):
-        return None
-    if text_upper == "BIN":
-        return None
-    if text_upper == "BRIEFING":
-        return "Getting your briefing..."
-    if text_upper.startswith("REMIND "):
-        return None
-    if text_upper == "INSURANCE":
-        return None
-    if text_upper == "ICE":
-        return None
-
-    # Long-running commands get acks
-    if text_upper == "RESET":
-        return "Resetting Pi Bluetooth..."
-    if text_upper == "MESSAGES":
-        return "Checking messages..."
-    if text_upper.startswith("NAV "):
-        return "Getting directions..."
-
-    # Everything else goes to LLM classification/processing
-    # Determine likely command for better ack
-    text_lower = text.lower()
-    if any(word in text_lower for word in ["search", "look up", "find", "what is", "who is"]):
-        return "Searching..."
-    if any(word in text_lower for word in ["weather", "rain", "temperature", "forecast"]):
-        return "Checking weather..."
-
-    # Generic LLM query
-    return "Thinking..."
-
-
-async def preload_model():
-    """Preload the Ollama model into memory."""
-    log.info(f"Preloading Ollama model: {OLLAMA_MODEL}...")
-    try:
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            # Send a simple request to load the model
-            resp = await client.post(
-                f"{OLLAMA_URL}/api/generate",
-                json={"model": OLLAMA_MODEL, "prompt": "hi", "stream": False}
+        try:
+            resp = httpx.post(
+                f"{GATEWAY_URL}/send",
+                json={"recipient": recipient, "message": chunk},
+                timeout=15.0,
             )
             if resp.status_code == 200:
-                log.info("Model preloaded successfully")
+                log.info(f"Sent reply {i + 1}/{len(chunks)}: {chunk[:40]}...")
             else:
-                log.warning(f"Model preload failed: {resp.status_code}")
-    except Exception as e:
-        log.warning(f"Model preload failed: {e}")
-
-
-async def main():
-    """Main polling loop."""
-    if not DUMBPHONE_NUMBER:
-        log.error("DUMBPHONE_NUMBER environment variable not set")
-        log.error("Set it to your dumbphone's phone number, e.g., +441234567890")
-        return
-
-    log.info(f"SMS Assistant starting...")
-    log.info(f"Monitoring for messages from: {DUMBPHONE_NUMBER}")
-    log.info(f"Using Ollama model: {OLLAMA_MODEL}")
-    log.info(f"Poll interval: {POLL_INTERVAL}s")
-
-    # Preload model at startup
-    await preload_model()
-
-    # Set up SMS sender for commands that need async callbacks
-    set_sms_sender(send_sms_reply)
-
-    state = load_state()
-    log.info(f"Starting from message ROWID: {state['last_rowid']}")
-
-    while True:
-        try:
-            update_heartbeat()  # Show we're alive
-            messages = get_new_messages(state["last_rowid"])
-
-            for msg in messages:
-                log.info(f"New message from {msg.sender}: {msg.text[:50]}...")
-
-                # Send acknowledgement for long-running commands
-                ack = get_ack_message(msg.text)
-                if ack:
-                    log.info(f"Sending ack: {ack}")
-                    send_sms_reply(msg.sender, ack)
-                    # Track this reply to avoid loop
-                    state["recent_replies"] = state.get("recent_replies", [])[-9:] + [ack]
-
-                # Process and get response
-                response = await process_message(msg)
-                log.info(f"Response: {response}")
-
-                # Send reply
-                send_sms_reply(msg.sender, response)
-
-                # Update state
-                state["last_rowid"] = msg.rowid
-                save_state(state)
-
-            await asyncio.sleep(POLL_INTERVAL)
-
-        except KeyboardInterrupt:
-            log.info("Shutting down...")
-            break
+                log.error(f"Gateway error sending reply: {resp.status_code} {resp.text}")
         except Exception as e:
-            log.error(f"Error in main loop: {e}")
-            await asyncio.sleep(POLL_INTERVAL)
+            log.error(f"Failed to send reply chunk: {e}")
+
+
+set_sms_sender(send_sms_reply)
+
+
+async def process_message(text: str, sender: str) -> str:
+    """Parse and dispatch a command. Unmatched text gets a HELP pointer -
+    no LLM fallback (see module docstring)."""
+    text = text.strip()
+    text_upper = text.upper()
+    log.info(f"Processing: {text}")
+
+    parts = text_upper.split(maxsplit=1)
+    command_name = parts[0] if parts else ""
+    args = parts[1] if len(parts) > 1 else ""
+
+    if text_upper in ("RAIN TOMORROW", "RAIN TOM"):
+        command_name, args = "RAIN", "TOMORROW"
+
+    handler = get_command_handler(command_name)
+    if handler:
+        log.info(f"{command_name} command detected")
+        if command_name in ("TIMER", "REMIND"):
+            return await handler(args, recipient=sender)
+        return await handler(args)
+
+    return f"Unknown command: {command_name}. Text HELP for a list."
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
+@app.post("/incoming")
+async def incoming(req: IncomingRequest):
+    """Hit by the iPhone's Shortcuts 'Message' automation with the dumbphone's
+    text content. Dispatches the command and sends the reply via the gateway -
+    doesn't wait on the reply's own delivery to respond to the caller."""
+    reply = await process_message(req.text, sender="dumbphone")
+    send_sms_reply("dumbphone", reply)
+    return {"status": "ok", "reply": reply}
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    import uvicorn
+
+    port = int(os.getenv("PORT", 8091))
+    uvicorn.run(app, host="0.0.0.0", port=port)

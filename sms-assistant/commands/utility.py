@@ -1,4 +1,10 @@
-"""Utility commands: NAV, TIMER, REMIND, SEARCH, BORED."""
+"""Utility commands: NAV, TIMER, REMIND, BORED.
+
+SEARCH dropped - it depended on Ollama to extract search terms, which
+isn't deployed for this yet. NAV's LLM-prose step is also dropped; it
+always uses the compact turn-by-turn fallback now (which the original
+already had as a fallback for when Ollama was unavailable).
+"""
 
 import asyncio
 import logging
@@ -15,8 +21,6 @@ from commands import register_command
 
 log = logging.getLogger(__name__)
 
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
 DEFAULT_LAT = os.getenv("DEFAULT_LAT", "51.5074")
 DEFAULT_LON = os.getenv("DEFAULT_LON", "-0.1278")
 HOME_ADDRESS = os.getenv("HOME_ADDRESS", "")
@@ -33,29 +37,6 @@ def set_sms_sender(func):
     """Set the SMS reply function (called from assistant.py)."""
     global _send_sms_reply
     _send_sms_reply = func
-
-
-async def ollama_generate(prompt: str, system: str = "") -> str:
-    """Generate response using Ollama."""
-    payload = {
-        "model": OLLAMA_MODEL,
-        "prompt": prompt,
-        "stream": False,
-    }
-    if system:
-        payload["system"] = system
-
-    try:
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            resp = await client.post(f"{OLLAMA_URL}/api/generate", json=payload)
-            if resp.status_code == 200:
-                return resp.json().get("response", "").strip()
-            else:
-                log.error(f"Ollama error: {resp.status_code} {resp.text}")
-                return "Sorry, LLM unavailable"
-    except Exception as e:
-        log.error(f"Ollama request failed: {e}")
-        return "Sorry, LLM unavailable"
 
 
 @register_command("NAV")
@@ -137,36 +118,23 @@ async def handle_nav(args: str = "") -> str:
             dist_str = f"{miles:.1f}mi" if miles >= 0.5 else f"{int(total_dist * 3.281)}ft"
             time_str = f"{int(total_time/60)}min"
 
-            # Convert to prose with LLM
-            raw_directions = "\n".join(instructions).replace("rotary", "roundabout")
-            prompt = f"""Condense to key turns only. Use exact road names. Skip minor roads. No distances.
-Example output: "R onto Main St, L onto High St, straight A1, exit M1"
-
-{raw_directions}
-
-Short version:"""
-
-            prose = await ollama_generate(prompt)
-            if prose and "unavailable" not in prose.lower():
-                return f"{dist_str}, ~{time_str}:\n{prose}"
-            else:
-                # Fallback: compact raw directions
-                compact = []
-                for step in instructions[:6]:
-                    step = step.replace("turn right", "turn R").replace("turn left", "turn L")
-                    step = step.replace("merge slight right", "merge R")
-                    step = step.replace("merge slight left", "merge L")
-                    step = step.replace("straight onto", "->")
-                    step = step.replace("slight right onto", "R")
-                    step = step.replace("slight left onto", "L")
-                    step = step.replace("rotary", "rbt").replace("exit rbt", "exit")
-                    step = step.replace(" onto ", " ")
-                    step = step.replace("(", "").replace(")", "")
-                    compact.append(step)
-                result = f"{dist_str} ~{time_str}\n" + "\n".join(compact)
-                if len(instructions) > 6:
-                    result += f"\n+{len(instructions) - 6} more"
-                return result
+            # Compact raw directions (no LLM prose step - see module docstring)
+            compact = []
+            for step in instructions[:6]:
+                step = step.replace("turn right", "turn R").replace("turn left", "turn L")
+                step = step.replace("merge slight right", "merge R")
+                step = step.replace("merge slight left", "merge L")
+                step = step.replace("straight onto", "->")
+                step = step.replace("slight right onto", "R")
+                step = step.replace("slight left onto", "L")
+                step = step.replace("rotary", "rbt").replace("exit rbt", "exit")
+                step = step.replace(" onto ", " ")
+                step = step.replace("(", "").replace(")", "")
+                compact.append(step)
+            result = f"{dist_str} ~{time_str}\n" + "\n".join(compact)
+            if len(instructions) > 6:
+                result += f"\n+{len(instructions) - 6} more"
+            return result
 
         except Exception as e:
             log.error(f"NAV error: {e}")
@@ -290,58 +258,6 @@ async def handle_remind(args: str = "", recipient: str = "") -> str:
         time_display = remind_time.strftime("%a %H:%M")
 
     return f"Reminder set for {time_display}: {message}"
-
-
-@register_command("SEARCH")
-async def handle_search(args: str = "") -> str:
-    """Perform web search using DuckDuckGo Instant Answer API."""
-    if not args:
-        return "Usage: SEARCH [query]"
-
-    # Extract search terms
-    search_prompt = f"""Extract the search query from this message. Remove words like "search for", "look up", "find".
-
-Message: "{args}"
-
-Reply with ONLY the search terms."""
-
-    search_terms = await ollama_generate(search_prompt)
-    if not search_terms or search_terms.startswith("Sorry,"):
-        search_terms = args
-
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(
-                "https://api.duckduckgo.com/",
-                params={
-                    "q": search_terms,
-                    "format": "json",
-                    "no_html": 1,
-                    "skip_disambig": 1
-                }
-            )
-
-            if resp.status_code == 200:
-                data = resp.json()
-
-                if data.get("AbstractText"):
-                    answer = data["AbstractText"]
-                elif data.get("Answer"):
-                    answer = data["Answer"]
-                elif data.get("RelatedTopics") and len(data["RelatedTopics"]) > 0:
-                    first = data["RelatedTopics"][0]
-                    if isinstance(first, dict) and first.get("Text"):
-                        answer = first["Text"]
-                    else:
-                        answer = f"Search '{search_terms}' - no instant answer"
-                else:
-                    answer = f"No results for '{search_terms}'"
-
-                return answer
-    except Exception as e:
-        log.error(f"Search error: {e}")
-
-    return f"Search failed for '{search_terms}'"
 
 
 # Offline activity suggestions for BORED command
