@@ -84,6 +84,12 @@ The setup script will:
 - Install macOS services (SMS Assistant, iMessage Gateway)
 - Create all config files
 
+> [!NOTE]
+> `setup.sh` currently automates the original Mac-based gateway path. If
+> you don't have a Mac, skip the macOS-services step it offers and follow
+> [`smtp-gateway/README.md`](smtp-gateway/README.md) instead - see
+> [Delivery Gateway](#3-delivery-gateway--send-sms-to-your-dumbphone) below.
+
 Dashboard: **http://localhost:8090**
 
 ---
@@ -131,8 +137,14 @@ iPhone → Pi (BLE) → Processor → iMessage Gateway → SMS → Dumbphone
 
 **Inbound (commands from you):**
 ```
-Dumbphone → SMS → Mac (iMessage) → SMS Assistant → Response → Dumbphone
+Dumbphone → SMS → iPhone → Shortcuts automation → SMS Assistant → Response → Dumbphone
 ```
+
+Both directions used to require a Mac running 24/7 (AppleScript against
+Messages.app, and a poller against its local `chat.db`). As of v2, neither
+does - see [Delivery Gateway](#3-delivery-gateway--send-sms-to-your-dumbphone)
+below. The iPhone itself, via two Shortcuts Personal Automations, is now
+the only thing that has to stay reachable.
 
 ---
 
@@ -144,8 +156,11 @@ Dumbphone → SMS → Mac (iMessage) → SMS Assistant → Response → Dumbphon
 |-----------|---------|----------------|
 | Raspberry Pi | Bluetooth bridge | Zero 2 W, Pi 3/4/5 |
 | iPhone | Notification source | Stays at home |
-| Mac | SMS gateway | Sends iMessage/SMS |
 | Dumbphone | Your daily carry | Nokia 8210 4G |
+
+A **Mac** is optional as of v2 - only needed if you choose the original
+`imessage-gateway/` (AppleScript-driven) delivery path instead of the
+Mac-free `smtp-gateway/` one. See [Delivery Gateway](#3-delivery-gateway--send-sms-to-your-dumbphone).
 
 ### Software
 
@@ -168,7 +183,23 @@ Set up the Pi to capture notifications from your iPhone via Bluetooth.
 docker compose up -d
 ```
 
-### 3. iMessage Gateway — Send SMS from Mac
+### 3. Delivery Gateway — Send SMS to your dumbphone
+
+Two options - both speak the same `POST /send` contract, so pick one:
+
+**SMTP Gateway (recommended, no Mac needed)** - emails your iPhone, a
+Shortcuts automation there sends the text.
+
+```bash
+cd smtp-gateway
+cp .env.example .env   # fill in your SMTP details
+./run.sh                # Port 8095
+```
+
+Full walkthrough, including the Shortcut: [`smtp-gateway/README.md`](smtp-gateway/README.md).
+
+**iMessage Gateway (legacy, requires a Mac running 24/7)** - drives
+Messages.app directly via AppleScript.
 
 ```bash
 cd imessage-gateway
@@ -178,11 +209,17 @@ python server.py  # Port 8095
 
 ### 4. SMS Assistant — Command Handler (Optional)
 
+Text commands from your dumbphone back to yourself - see [SMS Assistant](#sms-assistant)
+below. Runs as a plain HTTP service now (a Shortcuts automation POSTs
+incoming texts to it directly), no Mac or chat.db polling involved.
+
 ```bash
 cd sms-assistant
 pip install -r requirements.txt
-python assistant.py
+python assistant.py  # Port 8091
 ```
+
+Or with Docker: `docker build -t sms-assistant . && docker run -p 8091:8091 --env-file .env sms-assistant`.
 
 ---
 
@@ -244,6 +281,9 @@ sinks:
 
   imessage:
     enabled: true
+    # Point at whichever gateway you're running - smtp-gateway/ or
+    # imessage-gateway/, both listen on :8095 by default and speak the
+    # same contract.
     gateway_url: "http://localhost:8095"
     recipient: "+441234567890"
 
@@ -270,25 +310,38 @@ sinks:
 
 Turn your dumbphone into a remote control. Text commands to your iPhone number and get responses via SMS.
 
+As of v2 this runs as a plain HTTP service (`POST /incoming`), fed by a
+second Shortcuts Personal Automation (trigger: Message received from your
+dumbphone, Run Immediately) instead of polling a Mac's local `chat.db`.
+Replies go back out through whichever delivery gateway you set up above.
+There's no LLM fallback for unmatched text anymore - see the note in
+[`sms-assistant/commands/README.md`](sms-assistant/commands/README.md) if
+you want that back.
+
 ### Commands
 
 | Command | Example | Response |
 |---------|---------|----------|
 | `PING` | `PING` | Pi + iPhone status, battery % |
+| `RESET` | `RESET` | Restart the Pi's Bluetooth stack over SSH |
+| `EMERGENCY` | `EMERGENCY ON` | Toggle emergency mode |
 | `WEATHER` | `WEATHER` | Current conditions + forecast |
 | `WEATHER [place]` | `WEATHER paris` | Weather for any location |
 | `RAIN` | `RAIN` | Precipitation next 3 hours |
-| `TODO` | `TODO` | List your tasks |
-| `TODO [task]` | `TODO buy milk` | Add a task |
-| `DONE 1,2` | `DONE 1,2` | Complete tasks |
+| `TODO` | `TODO` | List open todos |
+| `TODO [task]` | `TODO buy milk` | Add a todo |
+| `DONE [n or text]` | `DONE 2` | Complete a todo, by list position or fuzzy text match |
 | `REMIND [time] [msg]` | `REMIND 3pm dentist` | Set reminder |
 | `TIMER [mins]` | `TIMER 25` | Countdown timer |
 | `CALL [name]` | `CALL dad` | Fuzzy contact search |
-| `NAV [from] to [dest]` | `NAV home to london` | Driving directions |
-| `LOCATE` | `LOCATE` | Sound alarm on iPhone |
+| `NAV [from] to [dest]` | `NAV home to london` | Directions |
 | `BRIEFING` | `BRIEFING` | Morning summary |
-| `SEARCH [query]` | `SEARCH capital france` | Quick answer |
-| *(anything else)* | `what's 20% of 85?` | Chat with LLM |
+| `BIN` | `BIN` | Which bin this week |
+| `ICE` / `INSURANCE` | `ICE` | Emergency / insurance info |
+| `BORED` | `BORED` | Offline activity suggestion |
+| `RINGGO` | `RINGGO START` | Parking session control |
+| `HELP` | `HELP` or `HELP WEATHER` | List commands, or detail on one |
+| *(anything else)* | `asdf` | `Unknown command: ASDF. Text HELP for a list.` |
 
 ### Example Session
 
@@ -320,21 +373,27 @@ Sift: TIMER: 25 min complete!
 cd sms-assistant
 pip install -r requirements.txt
 
-export DUMBPHONE_NUMBER="+441234567890"
-export PI_HOST="pi@192.168.1.100"
-export OLLAMA_MODEL="qwen2.5:7b"
+export GATEWAY_URL="http://localhost:8095"       # your delivery gateway from step 3
+export PI_HOST="pi@192.168.1.100"                # for RESET, over SSH
+export SSH_KEY_PATH="/path/to/key"               # RESET's SSH key
+export PI_HEALTH_URL="http://192.168.1.100:8081/health"  # for PING
+export INGEST_URL=""                             # optional: a REST todo backend for TODO/DONE
 export DEFAULT_LAT="51.5074"
 export DEFAULT_LON="-0.1278"
 
-python assistant.py
+python assistant.py   # Port 8091
 ```
 
-Or install as a launchd service:
+Or with Docker: `docker build -t sms-assistant . && docker run -p 8091:8091 --env-file .env sms-assistant`.
 
-```bash
-cp com.notif-fwd.sms-assistant.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.notif-fwd.sms-assistant.plist
-```
+Then point a Shortcuts Personal Automation (trigger: Message received,
+filtered to your dumbphone's number, Run Immediately, Ask Before Running
+off) at `POST http://<host>:8091/incoming` with body
+`{"text": "<Shortcut Input>"}`.
+
+`RESET` needs `ssh` on the container - if you're building your own image
+instead of using the provided `Dockerfile`, make sure your base image has
+an SSH client installed.
 
 ---
 
@@ -448,6 +507,22 @@ make pull-model  # Pull Ollama model
 ```
 
 ---
+
+## Versions
+
+Released as git tags, not by rewriting these docs in place - check out an
+older tag if you want the docs as they were for that version.
+
+- **v2.0.0** — No Mac required. Added `smtp-gateway/` as a Mac-free
+  alternative to `imessage-gateway/` (email + an iOS Shortcut instead of
+  AppleScript). Rewrote `sms-assistant/` to be event-driven over HTTP
+  instead of polling a Mac's local `chat.db` - runs anywhere a container
+  can, not just macOS. Dropped `MESSAGES`, `LOCATE`, and `SEARCH`
+  (macOS-chat.db-only, Bark-only, and Ollama-only respectively - not
+  portable, bring them back in your own fork if you have the
+  dependencies).
+- **v1.0.0** — Original release. macOS required for both delivery
+  directions (AppleScript via Messages.app).
 
 ## Contributing
 

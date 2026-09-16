@@ -6,11 +6,11 @@ Commands are SMS keywords that trigger specific actions. Send a command via SMS 
 
 | Command | Args | Description |
 |---------|------|-------------|
-| `PING` | - | Check Pi + iPhone status (connected, battery %, last notification) |
-| `RESET` | - | Remote restart of BLE stack on Pi (~30s) |
-| `LOCATE` | - | Send loud alarm to iPhone via Bark (critical priority) |
-| `TODO` | `[task]` | List tasks, or add a new task |
-| `DONE` | `1,2,3` | Mark tasks complete by number |
+| `PING` | - | Check Pi + iPhone status (connected, battery %) |
+| `RESET` | - | Remote restart of the Pi's BLE stack over SSH (~30s) |
+| `EMERGENCY` | `ON`/`OFF` | Toggle emergency mode (shared state with the processor) |
+| `TODO` | `[task]` | List open todos, or add a new one, via a REST todo backend |
+| `DONE` | `<number>` or `<text>` | Mark a todo complete, by list position or fuzzy text match |
 | `WEATHER` | `[place]` or `week` | Current weather or 5-day forecast |
 | `RAIN` | `[TOMORROW]` | Precipitation forecast (next 3h or tomorrow) |
 | `BIN` | - | Which bin to put out this week |
@@ -19,13 +19,18 @@ Commands are SMS keywords that trigger specific actions. Send a command via SMS 
 | `TIMER` | `<mins>` | Set countdown timer |
 | `CALL` | `<name>` | Fuzzy search contacts, returns phone number(s) |
 | `CONTACT` | `<place>` | Business lookup - phone, address, hours (OSM) |
-| `NAV` | `<from> to <dest>` | Prose directions via OSRM + LLM |
+| `NAV` | `<from> to <dest>` | Directions via OSRM |
 | `BORED` | - | Weather-aware offline activity suggestion |
 | `INSURANCE` | - | Car insurance details |
 | `ICE` | - | Emergency info (NHS, NI, blood type, allergies) |
-| `SEARCH` | `<query>` | DuckDuckGo instant answer |
-| `MESSAGES` | - | Summarize unread messages (last 24h) |
-| *(anything else)* | - | Chat with LLM |
+| `RINGGO` | `START`/`EXTEND` | Parking session control (see note in `parking.py`) |
+| *(anything else)* | - | `Unknown command: X. Text HELP for a list.` |
+
+There's no LLM fallback - unmatched text doesn't get interpreted, it just
+points at `HELP`. `MESSAGES`, `LOCATE` and `SEARCH` from earlier versions
+were dropped: `MESSAGES` needed macOS's local `chat.db`, `LOCATE` needed a
+Bark instance that isn't part of this setup, and `SEARCH` was Ollama-only.
+Add them back in your own fork if you have the dependencies they need.
 
 ## Adding a New Command
 
@@ -82,20 +87,34 @@ async def handle_mycommand(args: str = "") -> str:
 
 ### Accessing Shared Resources
 
-```python
-from core.llm import ollama_generate  # LLM queries
-from core.state import load_data, save_data  # User data
-from core.messages import send_sms_reply  # Send additional SMS
+There's no shared `core/` helper module for state or LLM access anymore -
+each command file reads what it needs directly from env vars and does
+plain HTTP calls:
 
-# For HTTP requests
+```python
+import os
 import httpx
-async with httpx.AsyncClient() as client:
-    resp = await client.get("https://api.example.com/data")
+from commands import register_command
+
+DATA_FILE = os.getenv("DATA_FILE", "/app/data/data.json")
+
+@register_command("MYCOMMAND")
+async def handle_mycommand(args: str = "") -> str:
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get("https://api.example.com/data")
+    return resp.text
 ```
+
+To send an extra SMS outside your return value (e.g. a delayed reminder),
+import `send_sms_reply` from `assistant.py` - see how `utility.py`'s
+`TIMER`/`REMIND` handlers use it via `commands/utility.py`'s
+`set_sms_sender`.
 
 ### Data Storage
 
-User-specific data (bin schedules, insurance, ICE info) is stored in `~/.sms-assistant/data.json`:
+User-specific data (bin schedules, insurance, ICE info) is stored in the
+JSON file pointed at by the `DATA_FILE` env var (`/app/data/data.json` by
+default):
 
 ```json
 {
@@ -119,31 +138,33 @@ User-specific data (bin schedules, insurance, ICE info) is stored in `~/.sms-ass
 
 Commands are organized by function:
 
-- **system.py** - Device management (PING, RESET, LOCATE)
+- **system.py** - Device management (PING, RESET, EMERGENCY)
 - **weather.py** - Weather forecasts (WEATHER, RAIN)
 - **todo.py** - Task management (TODO, DONE)
 - **info.py** - Personal info (BIN, ICE, INSURANCE, BRIEFING)
-- **comms.py** - Communication (CALL, CONTACT, MESSAGES)
-- **utility.py** - Misc utilities (NAV, TIMER, REMIND, SEARCH, BORED)
+- **comms.py** - Communication (CALL, CONTACT)
+- **utility.py** - Misc utilities (NAV, TIMER, REMIND, BORED)
+- **parking.py** - Parking sessions (RINGGO)
 
 ## Testing
 
+There's no local chat.db or Messages.app to poll anymore - commands are
+dispatched over HTTP. Either hit the running server directly:
+
 ```bash
-# Manually trigger a command (via the processing function)
+curl -X POST http://localhost:8091/incoming \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "WEATHER"}'
+```
+
+or call the dispatcher directly for a faster inner loop while writing a
+new command:
+
+```bash
 cd sms-assistant
 python3 -c "
 import asyncio
 from assistant import process_message
-from dataclasses import dataclass
-from datetime import datetime
-
-@dataclass
-class Msg:
-    rowid: int = 1
-    text: str = 'WEATHER'
-    timestamp: datetime = datetime.now()
-    sender: str = '+441234567890'
-
-print(asyncio.run(process_message(Msg())))
+print(asyncio.run(process_message('WEATHER', sender='dumbphone')))
 "
 ```
