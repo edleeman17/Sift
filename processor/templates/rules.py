@@ -10,13 +10,14 @@ RULES_HTML = """
         :root {
             --bg: #000; --fg: #fff; --muted: #999; --dim: #666; --border: #333; --border-strong: #fff;
         }
-        * { box-sizing: border-box; }
+        * { box-sizing: border-box; border-radius: 0 !important; }
+        select { -webkit-appearance: none; -moz-appearance: none; appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--fg) 50%), linear-gradient(135deg, var(--fg) 50%, transparent 50%); background-position: calc(100% - 16px) center, calc(100% - 11px) center; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; padding-right: 28px !important; }
         body { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; margin: 0; padding: 20px; background: var(--bg); color: var(--fg); }
         h1 { margin: 0 0 20px; font-size: 22px; font-weight: normal; text-transform: uppercase; letter-spacing: 2px; display: flex; align-items: center; gap: 15px; border-bottom: 1px solid var(--border-strong); padding-bottom: 12px; }
         a.back { color: var(--fg); text-decoration: none; font-size: 14px; text-transform: none; letter-spacing: normal; }
         a.back:hover { text-decoration: underline; }
         .rules-filter { margin-bottom: 15px; display: flex; gap: 10px; flex-wrap: wrap; }
-        .rules-filter select { background: var(--bg); border: 1px solid var(--border); color: var(--fg); padding: 8px 12px; font-family: inherit; }
+        .rules-filter select { background-color: var(--bg); border: 1px solid var(--border); color: var(--fg); padding: 8px 12px; font-family: inherit; }
         .rule-item { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border: 1px solid var(--border); margin-bottom: 8px; flex-wrap: wrap; }
         .rule-app { font-weight: bold; min-width: 100px; color: var(--muted); }
         .rule-matcher { color: var(--muted); min-width: 120px; }
@@ -26,7 +27,7 @@ RULES_HTML = """
         .rule-action.drop::before { content: "✗ "; }
         .rule-action.llm::before { content: "† "; }
         .rule-default { opacity: 0.8; }
-        .default-action-select { background: var(--bg); border: 1px solid var(--border); color: var(--fg); padding: 4px 8px; font-family: inherit; cursor: pointer; }
+        .default-action-select { background-color: var(--bg); border: 1px solid var(--border); color: var(--fg); padding: 4px 8px; font-family: inherit; cursor: pointer; }
         .rule-global { border: 1px solid var(--border-strong); }
         .rule-global .rule-app { color: var(--fg); }
         .rule-delete { background: var(--bg); color: var(--fg); border: 1px solid var(--border); padding: 5px 10px; cursor: pointer; font-size: 12px; font-family: inherit; text-transform: uppercase; }
@@ -39,7 +40,7 @@ RULES_HTML = """
         .add-rule-form { border: 1px solid var(--border); padding: 16px; margin-bottom: 20px; }
         .add-rule-form h3 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; font-weight: normal; color: var(--muted); }
         .form-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
-        .form-row input, .form-row select { background: var(--bg); border: 1px solid var(--border); color: var(--fg); padding: 8px 12px; font-family: inherit; font-size: 14px; }
+        .form-row input, .form-row select { background-color: var(--bg); border: 1px solid var(--border); color: var(--fg); padding: 8px 12px; font-family: inherit; font-size: 14px; }
         .form-row input { flex: 1; min-width: 150px; }
         .form-row select { min-width: 120px; }
         .form-row button { background: var(--bg); color: var(--fg); border: 1px solid var(--border-strong); padding: 8px 16px; cursor: pointer; font-size: 14px; font-family: inherit; text-transform: uppercase; letter-spacing: 0.5px; }
@@ -78,10 +79,9 @@ RULES_HTML = """
             <input type="text" id="new-value" placeholder="Match text">
         </div>
         <div class="form-row">
-            <select id="new-action" onchange="togglePrompt()">
+            <select id="new-action">
                 <option value="send">send</option>
                 <option value="drop">drop</option>
-                <option value="llm">llm</option>
             </select>
             <select id="new-priority">
                 <option value="">Priority: default</option>
@@ -89,13 +89,6 @@ RULES_HTML = """
                 <option value="critical">Priority: critical</option>
             </select>
             <button onclick="addRule()">Add Rule</button>
-        </div>
-        <div class="form-row" id="prompt-row" style="display: none;">
-            <select id="new-prompt-type" onchange="toggleCustomPrompt()">
-                <option value="default">Default LLM prompt</option>
-                <option value="custom">Custom prompt</option>
-            </select>
-            <input type="text" id="new-prompt" placeholder="Custom prompt - must ask for SEND or DROP response" style="display: none;">
         </div>
         <div id="form-error" class="form-error"></div>
     </div>
@@ -199,16 +192,6 @@ RULES_HTML = """
             refreshRules();
         }
 
-        function togglePrompt() {
-            const action = document.getElementById('new-action').value;
-            document.getElementById('prompt-row').style.display = action === 'llm' ? 'flex' : 'none';
-        }
-
-        function toggleCustomPrompt() {
-            const type = document.getElementById('new-prompt-type').value;
-            document.getElementById('new-prompt').style.display = type === 'custom' ? 'block' : 'none';
-        }
-
         async function addRule() {
             const appSelect = document.getElementById('new-app').value;
             const appCustom = document.getElementById('new-app-custom').value.trim().toLowerCase();
@@ -233,15 +216,6 @@ RULES_HTML = """
                 body.priority = priority;
             }
 
-            // Add prompt if LLM action with custom prompt
-            if (action === 'llm') {
-                const promptType = document.getElementById('new-prompt-type').value;
-                if (promptType === 'custom') {
-                    const prompt = document.getElementById('new-prompt').value.trim();
-                    if (prompt) body.prompt = prompt;
-                }
-            }
-
             const resp = await fetch('/api/rules', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -253,11 +227,8 @@ RULES_HTML = """
                 document.getElementById('new-app-custom').value = '';
                 document.getElementById('new-app-custom').style.display = 'none';
                 document.getElementById('new-value').value = '';
-                document.getElementById('new-prompt').value = '';
                 document.getElementById('new-action').value = 'send';
                 document.getElementById('new-priority').value = '';
-                document.getElementById('new-prompt-type').value = 'default';
-                togglePrompt();
                 refreshRules();
             } else {
                 const data = await resp.json();

@@ -3,7 +3,6 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
-from classifier import analyze_feedback_with_ai
 from services.pi_health import get_pi_health, format_time_ago, get_last_notification_ago
 from templates.dashboard import DASHBOARD_HTML
 import db
@@ -187,13 +186,6 @@ async def dashboard_api():
 async def insights_api():
     """Get feedback-based rule suggestions."""
     return db.get_feedback_insights()
-
-
-@router.get("/api/insights/ai")
-async def insights_ai_api():
-    """Get AI-powered feedback analysis."""
-    feedback_data = db.get_feedback_data_for_ai()
-    return await analyze_feedback_with_ai(feedback_data)
 
 
 @router.post("/feedback/{notification_id}")

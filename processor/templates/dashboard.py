@@ -10,7 +10,8 @@ DASHBOARD_HTML = """
         :root {{
             --bg: #000; --fg: #fff; --muted: #999; --dim: #666; --border: #333; --border-strong: #fff;
         }}
-        * {{ box-sizing: border-box; }}
+        * {{ box-sizing: border-box; border-radius: 0 !important; }}
+        select {{ -webkit-appearance: none; -moz-appearance: none; appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--fg) 50%), linear-gradient(135deg, var(--fg) 50%, transparent 50%); background-position: calc(100% - 16px) center, calc(100% - 11px) center; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; padding-right: 28px !important; }}
         body {{ font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; margin: 0; padding: 20px; background: var(--bg); color: var(--fg); }}
         h1 {{ margin: 0 0 20px; font-size: 22px; font-weight: normal; text-transform: uppercase; letter-spacing: 2px; border-bottom: 1px solid var(--border-strong); padding-bottom: 12px; }}
         a {{ color: var(--fg); }}
@@ -20,7 +21,7 @@ DASHBOARD_HTML = """
         .stat-value {{ font-size: 22px; font-weight: bold; }}
         .stat-label {{ font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }}
         .connection {{ border: 1px solid var(--border); padding: 12px 16px; margin-bottom: 20px; display: flex; align-items: center; gap: 12px; }}
-        .connection-dot {{ width: 10px; height: 10px; border-radius: 50%; border: 1px solid var(--border-strong); flex-shrink: 0; background: transparent; }}
+        .connection-dot {{ width: 10px; height: 10px; border: 1px solid var(--border-strong); flex-shrink: 0; background: transparent; }}
         .connection-dot.connected {{ background: var(--fg); animation: pulse 2s ease-in-out infinite; }}
         .connection-dot.disconnected {{ background: transparent; border-style: dashed; }}
         .connection-dot.unknown {{ background: var(--fg); opacity: 0.4; }}
@@ -30,7 +31,7 @@ DASHBOARD_HTML = """
         .connection-detail {{ font-size: 12px; color: var(--muted); }}
         .system-health {{ border: 1px solid var(--border); padding: 10px 16px; margin-bottom: 20px; display: flex; align-items: center; gap: 12px; cursor: pointer; text-decoration: none; color: inherit; }}
         .system-health:hover {{ border-color: var(--border-strong); }}
-        .health-indicator {{ width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--border-strong); flex-shrink: 0; background: transparent; }}
+        .health-indicator {{ width: 9px; height: 9px; border: 1px solid var(--border-strong); flex-shrink: 0; background: transparent; }}
         .health-indicator.healthy {{ background: var(--fg); }}
         .health-indicator.degraded {{ background: var(--fg); opacity: 0.4; }}
         .health-indicator.unhealthy {{ background: var(--fg); animation: blink 1s ease-in-out infinite; }}
@@ -38,12 +39,12 @@ DASHBOARD_HTML = """
         .health-text {{ font-size: 13px; flex: 1; }}
         .health-summary {{ display: flex; gap: 12px; font-size: 12px; color: var(--muted); }}
         .health-item {{ display: flex; align-items: center; gap: 4px; }}
-        .health-item-dot {{ width: 6px; height: 6px; border-radius: 50%; border: 1px solid var(--muted); background: transparent; }}
+        .health-item-dot {{ width: 6px; height: 6px; border: 1px solid var(--muted); background: transparent; }}
         .health-item-dot.ok {{ background: var(--fg); border-color: var(--fg); }}
         .health-item-dot.warn {{ background: var(--fg); opacity: 0.4; border-color: var(--fg); }}
         .health-item-dot.err {{ background: var(--fg); border-color: var(--fg); animation: blink 1s ease-in-out infinite; }}
         .filters {{ display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }}
-        .filters select, .filters input {{ background: var(--bg); border: 1px solid var(--border); color: var(--fg); padding: 8px 12px; font-family: inherit; font-size: 14px; }}
+        .filters select, .filters input {{ background-color: var(--bg); border: 1px solid var(--border); color: var(--fg); padding: 8px 12px; font-family: inherit; font-size: 14px; }}
         .filters select {{ min-width: 120px; }}
         .filters input {{ flex: 1; min-width: 150px; }}
         .filters select:focus, .filters input:focus {{ outline: none; border-color: var(--border-strong); }}
@@ -119,7 +120,7 @@ DASHBOARD_HTML = """
         /* Rules panel */
         .rules-panel {{ border: 1px solid var(--border); padding: 16px; margin-bottom: 20px; }}
         .rules-filter {{ margin-bottom: 12px; }}
-        .rules-filter select {{ background: var(--bg); border: 1px solid var(--border); color: var(--fg); padding: 6px 10px; font-family: inherit; }}
+        .rules-filter select {{ background-color: var(--bg); border: 1px solid var(--border); color: var(--fg); padding: 6px 10px; font-family: inherit; }}
         .rule-item {{ display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid var(--border); margin-bottom: 6px; flex-wrap: wrap; }}
         .rule-app {{ font-weight: bold; min-width: 80px; color: var(--muted); }}
         .rule-matcher {{ color: var(--muted); }}
@@ -134,10 +135,6 @@ DASHBOARD_HTML = """
         .rule-priority {{ font-size: 10px; border: 1px solid currentColor; padding: 1px 6px; text-transform: uppercase; }}
         .ai-button {{ background: var(--bg); color: var(--fg); border: 1px solid var(--border-strong); padding: 8px 16px; cursor: pointer; font-size: 13px; font-family: inherit; text-transform: uppercase; letter-spacing: 0.5px; }}
         .ai-button:hover {{ background: var(--fg); color: var(--bg); }}
-        .ai-button:disabled {{ opacity: 0.4; cursor: not-allowed; }}
-        .ai-analysis {{ border: 1px solid var(--border); padding: 16px; margin-top: 12px; white-space: pre-wrap; font-size: 13px; line-height: 1.5; max-height: 400px; overflow-y: auto; }}
-        .ai-analysis code {{ border: 1px solid var(--border); padding: 2px 6px; }}
-        .ai-analysis pre {{ border: 1px solid var(--border); padding: 12px; overflow-x: auto; }}
 
         @media (max-width: 768px) {{
             body {{ padding: 12px; }}
@@ -184,16 +181,10 @@ DASHBOARD_HTML = """
     <div class="insights" id="insights-panel">
         <div class="insights-header">
             <h3>Rule Suggestions</h3>
-            <div>
-                <span class="insights-stats" id="insights-stats"></span>
-                <button class="ai-button" id="ai-analyze-btn" onclick="runAiAnalysis()">Analyze with AI</button>
-            </div>
+            <span class="insights-stats" id="insights-stats"></span>
         </div>
         <div id="insights-content">
             <div class="insights-empty">Loading insights...</div>
-        </div>
-        <div id="ai-analysis-container" style="display: none;">
-            <div class="ai-analysis" id="ai-analysis-content"></div>
         </div>
     </div>
 
@@ -454,39 +445,6 @@ DASHBOARD_HTML = """
                 body: JSON.stringify({{app, pattern, type}})
             }});
             refreshInsights();
-        }}
-
-        async function runAiAnalysis() {{
-            const btn = document.getElementById('ai-analyze-btn');
-            const container = document.getElementById('ai-analysis-container');
-            const content = document.getElementById('ai-analysis-content');
-
-            btn.disabled = true;
-            btn.textContent = 'Analyzing...';
-            container.style.display = 'block';
-            content.innerHTML = 'Running AI analysis on your feedback data...\\n\\nThis may take 30-60 seconds.';
-
-            try {{
-                const resp = await fetch('/api/insights/ai');
-                const data = await resp.json();
-
-                // Format the analysis with markdown-like rendering
-                let html = data.analysis
-                    .replace(/```yaml([\\s\\S]*?)```/g, '<pre><code>$1</code></pre>')
-                    .replace(/```([\\s\\S]*?)```/g, '<pre><code>$1</code></pre>')
-                    .replace(/`([^`]+)`/g, '<code>$1</code>');
-
-                if (data.stats) {{
-                    html = `<strong>Feedback analyzed:</strong> ${{data.stats.good_sends + data.stats.bad_sends}} sent, ${{data.stats.good_drops + data.stats.bad_drops}} dropped\\n\\n` + html;
-                }}
-
-                content.innerHTML = html;
-            }} catch (e) {{
-                content.innerHTML = 'Error running AI analysis: ' + e.message;
-            }}
-
-            btn.disabled = false;
-            btn.textContent = 'Analyze with AI';
         }}
 
         async function refreshInsights() {{
