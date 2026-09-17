@@ -8,49 +8,83 @@ RULES_HTML = """
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         :root {
-            --bg: #000; --fg: #fff; --muted: #999; --dim: #666; --border: #333; --border-strong: #fff;
+            --bg-base: #08090b; --bg-surface: #0f1116; --bg-elevated: #14171f; --bg-inset: #05060a;
+            --rule: #1c2330; --rule-strong: #2a3340;
+            --fg-primary: #e8e6e1; --fg-secondary: #8b94a3; --fg-muted: #4d5560; --fg-dim: #353c47;
+            --accent-live: #9fffb0;
+            --accent-cool: #6cd5ff;
+            --accent-warn: #ffb86c; --accent-warn-rgb: 255,184,108;
+            --accent-success: #4ade80;
+            --accent-steel: #7aa9c4;
+            --accent-signoff: #c4a1ff;
+            --danger: #ff8a7a; --danger-rgb: 255,138,122;
+            --fs-xs: 11px; --fs-sm: 12px; --fs-base: 13px; --fs-md: 14px; --fs-lg: 16px; --fs-display: 20px;
+            --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            --gap-1: 4px; --gap-2: 8px; --gap-3: 12px; --gap-4: 16px; --gap-5: 24px; --gap-6: 32px;
+            --t-fast: 120ms; --t-med: 160ms; --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+        }
+        @media (prefers-color-scheme: light) {
+            :root:not([data-theme="dark"]) {
+                --bg-base: #f7f7f5; --bg-surface: #ffffff; --bg-elevated: #ececea; --bg-inset: #ecece9;
+                --rule: #d8d8d4; --rule-strong: #b8b8b3;
+                --fg-primary: #1a1a18; --fg-secondary: #55565c; --fg-muted: #8a8b8f; --fg-dim: #b4b5b8;
+                --accent-live: #0f9d58;
+                --accent-cool: #0b6fb0;
+                --accent-warn: #b26a00; --accent-warn-rgb: 178,106,0;
+                --accent-success: #157f3b;
+                --accent-steel: #3d6a86;
+                --accent-signoff: #6b3fb0;
+                --danger: #cf3b2e; --danger-rgb: 207,59,46;
+            }
         }
         * { box-sizing: border-box; border-radius: 0 !important; }
-        select { -webkit-appearance: none; -moz-appearance: none; appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--fg) 50%), linear-gradient(135deg, var(--fg) 50%, transparent 50%); background-position: calc(100% - 16px) center, calc(100% - 11px) center; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; padding-right: 28px !important; }
-        body { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; margin: 0; padding: 20px; background: var(--bg); color: var(--fg); }
-        h1 { margin: 0 0 20px; font-size: 22px; font-weight: normal; text-transform: uppercase; letter-spacing: 2px; display: flex; align-items: center; gap: 15px; border-bottom: 1px solid var(--border-strong); padding-bottom: 12px; }
-        a.back { color: var(--fg); text-decoration: none; font-size: 14px; text-transform: none; letter-spacing: normal; }
+        select { -webkit-appearance: none; -moz-appearance: none; appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--fg-primary) 50%), linear-gradient(135deg, var(--fg-primary) 50%, transparent 50%); background-position: calc(100% - 16px) center, calc(100% - 11px) center; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; padding-right: 28px !important; }
+        button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent-cool); outline-offset: 1px; }
+        body { font-family: var(--font-mono); margin: 0; padding: 20px; background: var(--bg-base); color: var(--fg-primary); }
+        h1 { margin: 0 0 20px; font-size: var(--fs-display); font-weight: normal; text-transform: uppercase; letter-spacing: 2px; display: flex; align-items: center; gap: 15px; border-bottom: 1px solid var(--rule-strong); padding-bottom: 12px; }
+        a.back { color: var(--fg-primary); text-decoration: none; font-size: var(--fs-md); text-transform: none; letter-spacing: normal; }
         a.back:hover { text-decoration: underline; }
         .rules-filter { margin-bottom: 15px; display: flex; gap: 10px; flex-wrap: wrap; }
-        .rules-filter select { background-color: var(--bg); border: 1px solid var(--border); color: var(--fg); padding: 8px 12px; font-family: inherit; }
-        .rule-item { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border: 1px solid var(--border); margin-bottom: 8px; flex-wrap: wrap; }
-        .rule-app { font-weight: bold; min-width: 100px; color: var(--muted); }
-        .rule-matcher { color: var(--muted); min-width: 120px; }
-        .rule-value { color: var(--fg); flex: 1; min-width: 150px; word-break: break-all; }
-        .rule-action { font-size: 12px; font-weight: bold; padding: 2px 10px; border: 1px solid currentColor; text-transform: uppercase; }
+        .rules-filter select { background-color: var(--bg-inset); border: 1px solid var(--rule); color: var(--fg-primary); padding: 8px 12px; font-family: inherit; }
+        .rule-item { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border: 1px solid var(--rule); background: var(--bg-surface); margin-bottom: 8px; flex-wrap: wrap; }
+        .rule-app { font-weight: bold; min-width: 100px; color: var(--fg-secondary); }
+        .rule-matcher { color: var(--fg-secondary); min-width: 120px; }
+        .rule-value { color: var(--fg-primary); flex: 1; min-width: 150px; word-break: break-all; }
+        .rule-action { font-size: var(--fs-sm); font-weight: bold; padding: 2px 10px; border: 1px solid currentColor; text-transform: uppercase; }
+        .rule-action.send { color: var(--accent-success); }
+        .rule-action.drop { color: var(--danger); }
+        .rule-action.llm { color: var(--accent-steel); border-style: dashed; }
         .rule-action.send::before { content: "✓ "; }
         .rule-action.drop::before { content: "✗ "; }
         .rule-action.llm::before { content: "† "; }
         .rule-default { opacity: 0.8; }
-        .default-action-select { background-color: var(--bg); border: 1px solid var(--border); color: var(--fg); padding: 4px 8px; font-family: inherit; cursor: pointer; }
-        .rule-global { border: 1px solid var(--border-strong); }
-        .rule-global .rule-app { color: var(--fg); }
-        .rule-delete { background: var(--bg); color: var(--fg); border: 1px solid var(--border); padding: 5px 10px; cursor: pointer; font-size: 12px; font-family: inherit; text-transform: uppercase; }
-        .rule-delete:hover { background: var(--fg); color: var(--bg); border-color: var(--fg); }
-        .rule-priority { font-size: 10px; border: 1px solid currentColor; padding: 1px 6px; text-transform: uppercase; }
-        .rule-prompt { cursor: help; font-size: 14px; }
-        .empty { color: var(--dim); text-align: center; padding: 40px; }
+        .default-action-select { background-color: var(--bg-inset); border: 1px solid var(--rule); color: var(--fg-primary); padding: 4px 8px; font-family: inherit; cursor: pointer; }
+        .rule-global { border: 1px solid var(--accent-signoff); }
+        .rule-global .rule-app { color: var(--accent-signoff); }
+        .rule-delete { background: var(--bg-surface); color: var(--danger); border: 1px solid var(--rule); padding: 5px 10px; cursor: pointer; font-size: var(--fs-sm); font-family: inherit; text-transform: uppercase; transition: background var(--t-fast) var(--ease-out), border-color var(--t-fast) var(--ease-out); }
+        .rule-delete:hover { background: var(--bg-elevated); border-color: var(--danger); }
+        .rule-priority { font-size: 10px; border: 1px solid var(--fg-secondary); color: var(--fg-secondary); padding: 1px 6px; text-transform: uppercase; }
+        .rule-priority--high { border-color: var(--accent-warn); color: var(--accent-warn); }
+        .rule-priority--critical { border-color: var(--danger); color: var(--danger); }
+        .rule-prompt { cursor: help; font-size: var(--fs-md); }
+        .empty { color: var(--fg-muted); text-align: center; padding: 40px; }
 
         /* Add rule form */
-        .add-rule-form { border: 1px solid var(--border); padding: 16px; margin-bottom: 20px; }
-        .add-rule-form h3 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; font-weight: normal; color: var(--muted); }
+        .add-rule-form { border: 1px solid var(--rule); background: var(--bg-surface); padding: var(--gap-4); margin-bottom: 20px; }
+        .add-rule-form h3 { margin: 0 0 12px; font-size: var(--fs-base); text-transform: uppercase; letter-spacing: 1px; font-weight: normal; color: var(--fg-secondary); }
         .form-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
-        .form-row input, .form-row select { background-color: var(--bg); border: 1px solid var(--border); color: var(--fg); padding: 8px 12px; font-family: inherit; font-size: 14px; }
+        .form-row input, .form-row select { background-color: var(--bg-inset); border: 1px solid var(--rule); color: var(--fg-primary); padding: 8px 12px; font-family: inherit; font-size: var(--fs-md); }
         .form-row input { flex: 1; min-width: 150px; }
         .form-row select { min-width: 120px; }
-        .form-row button { background: var(--bg); color: var(--fg); border: 1px solid var(--border-strong); padding: 8px 16px; cursor: pointer; font-size: 14px; font-family: inherit; text-transform: uppercase; letter-spacing: 0.5px; }
-        .form-row button:hover { background: var(--fg); color: var(--bg); }
-        .form-error { color: var(--fg); font-weight: bold; font-size: 12px; margin-top: 5px; }
+        .form-row input:focus, .form-row select:focus { outline: none; border-color: var(--accent-cool); }
+        .form-row button { background: var(--bg-surface); color: var(--fg-primary); border: 1px solid var(--rule-strong); padding: 8px 16px; cursor: pointer; font-size: var(--fs-md); font-family: inherit; text-transform: uppercase; letter-spacing: 0.5px; transition: background var(--t-fast) var(--ease-out); }
+        .form-row button:hover { background: var(--bg-elevated); }
+        .form-error { color: var(--danger); font-weight: bold; font-size: var(--fs-sm); margin-top: 5px; }
 
         @media (max-width: 768px) {
             .rule-item { padding: 12px; }
-            .rule-app { min-width: 70px; font-size: 13px; }
-            .rule-matcher { min-width: 100px; font-size: 13px; }
+            .rule-app { min-width: 70px; font-size: var(--fs-base); }
+            .rule-matcher { min-width: 100px; font-size: var(--fs-base); }
         }
     </style>
 </head>
@@ -176,7 +210,7 @@ RULES_HTML = """
                     <span class="rule-matcher">${r.matcher.replace(/_/g, ' ')}</span>
                     <span class="rule-value">"${esc(r.value)}"</span>
                     <span class="rule-action ${r.action}">${r.action}</span>
-                    ${r.priority ? `<span class="rule-priority">${r.priority}</span>` : ''}
+                    ${r.priority ? `<span class="rule-priority rule-priority--${r.priority}">${r.priority}</span>` : ''}
                     ${r.prompt ? `<span class="rule-prompt" title="${esc(r.prompt)}">[i]</span>` : ''}
                     <button class="rule-delete">Delete</button>
                 </div>`;

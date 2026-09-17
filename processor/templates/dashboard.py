@@ -8,140 +8,191 @@ DASHBOARD_HTML = """
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         :root {{
-            --bg: #000; --fg: #fff; --muted: #999; --dim: #666; --border: #333; --border-strong: #fff;
+            --bg-base: #08090b; --bg-surface: #0f1116; --bg-elevated: #14171f; --bg-inset: #05060a;
+            --rule: #1c2330; --rule-strong: #2a3340;
+            --fg-primary: #e8e6e1; --fg-secondary: #8b94a3; --fg-muted: #4d5560; --fg-dim: #353c47;
+            --accent-live: #9fffb0; --accent-live-rgb: 159,255,176;
+            --accent-cool: #6cd5ff;
+            --accent-warn: #ffb86c; --accent-warn-rgb: 255,184,108;
+            --accent-success: #4ade80;
+            --accent-steel: #7aa9c4;
+            --accent-signoff: #c4a1ff;
+            --danger: #ff8a7a; --danger-rgb: 255,138,122;
+            --fs-xs: 11px; --fs-sm: 12px; --fs-base: 13px; --fs-md: 14px; --fs-lg: 16px; --fs-display: 20px;
+            --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            --gap-1: 4px; --gap-2: 8px; --gap-3: 12px; --gap-4: 16px; --gap-5: 24px; --gap-6: 32px;
+            --t-fast: 120ms; --t-med: 160ms; --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+        }}
+        @media (prefers-color-scheme: light) {{
+            :root:not([data-theme="dark"]) {{
+                --bg-base: #f7f7f5; --bg-surface: #ffffff; --bg-elevated: #ececea; --bg-inset: #ecece9;
+                --rule: #d8d8d4; --rule-strong: #b8b8b3;
+                --fg-primary: #1a1a18; --fg-secondary: #55565c; --fg-muted: #8a8b8f; --fg-dim: #b4b5b8;
+                --accent-live: #0f9d58; --accent-live-rgb: 15,157,88;
+                --accent-cool: #0b6fb0;
+                --accent-warn: #b26a00; --accent-warn-rgb: 178,106,0;
+                --accent-success: #157f3b;
+                --accent-steel: #3d6a86;
+                --accent-signoff: #6b3fb0;
+                --danger: #cf3b2e; --danger-rgb: 207,59,46;
+            }}
         }}
         * {{ box-sizing: border-box; border-radius: 0 !important; }}
-        select {{ -webkit-appearance: none; -moz-appearance: none; appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--fg) 50%), linear-gradient(135deg, var(--fg) 50%, transparent 50%); background-position: calc(100% - 16px) center, calc(100% - 11px) center; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; padding-right: 28px !important; }}
-        body {{ font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; margin: 0; padding: 20px; background: var(--bg); color: var(--fg); }}
-        h1 {{ margin: 0 0 20px; font-size: 22px; font-weight: normal; text-transform: uppercase; letter-spacing: 2px; border-bottom: 1px solid var(--border-strong); padding-bottom: 12px; }}
-        a {{ color: var(--fg); }}
-        .stats {{ display: flex; gap: 0; margin-bottom: 20px; flex-wrap: wrap; border: 1px solid var(--border); }}
-        .stat {{ padding: 12px 16px; min-width: 80px; flex: 1; border-right: 1px solid var(--border); }}
+        select {{ -webkit-appearance: none; -moz-appearance: none; appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--fg-primary) 50%), linear-gradient(135deg, var(--fg-primary) 50%, transparent 50%); background-position: calc(100% - 16px) center, calc(100% - 11px) center; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; padding-right: 28px !important; }}
+        button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible {{ outline: 2px solid var(--accent-cool); outline-offset: 1px; }}
+        body {{ font-family: var(--font-mono); margin: 0; padding: 20px; background: var(--bg-base); color: var(--fg-primary); }}
+        h1 {{ margin: 0 0 20px; font-size: var(--fs-display); font-weight: normal; text-transform: uppercase; letter-spacing: 2px; border-bottom: 1px solid var(--rule-strong); padding-bottom: 12px; }}
+        a {{ color: var(--fg-primary); }}
+        .stats {{ display: flex; gap: 0; margin-bottom: 20px; flex-wrap: wrap; border: 1px solid var(--rule); background: var(--bg-surface); }}
+        .stat {{ padding: var(--gap-3) var(--gap-4); min-width: 80px; flex: 1; border-right: 1px solid var(--rule); }}
         .stat:last-child {{ border-right: none; }}
-        .stat-value {{ font-size: 22px; font-weight: bold; }}
-        .stat-label {{ font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }}
-        .connection {{ border: 1px solid var(--border); padding: 12px 16px; margin-bottom: 20px; display: flex; align-items: center; gap: 12px; }}
-        .connection-dot {{ width: 10px; height: 10px; border: 1px solid var(--border-strong); flex-shrink: 0; background: transparent; }}
-        .connection-dot.connected {{ background: var(--fg); animation: pulse 2s ease-in-out infinite; }}
-        .connection-dot.disconnected {{ background: transparent; border-style: dashed; }}
-        .connection-dot.unknown {{ background: var(--fg); opacity: 0.4; }}
-        @keyframes pulse {{ 0%, 100% {{ opacity: 1; }} 50% {{ opacity: 0.35; }} }}
+        .stat-value {{ font-size: var(--fs-display); font-weight: 700; font-variant-numeric: tabular-nums; }}
+        .stat-label {{ font-size: var(--fs-xs); color: var(--fg-secondary); text-transform: uppercase; letter-spacing: 1px; }}
+        .stat.sent .stat-value {{ color: var(--accent-success); }}
+        .stat.dropped .stat-value {{ color: var(--danger); }}
+        .stat.rate_limited .stat-value {{ color: var(--accent-warn); }}
+        .connection {{ border: 1px solid var(--rule); background: var(--bg-surface); padding: var(--gap-3) var(--gap-4); margin-bottom: 20px; display: flex; align-items: center; gap: var(--gap-3); }}
+        .connection-dot {{ width: 10px; height: 10px; border: 1px solid var(--fg-muted); flex-shrink: 0; background: transparent; }}
+        .connection-dot.connected {{ background: var(--accent-live); border-color: var(--accent-live); animation: live-pulse 2s var(--ease-out) infinite; }}
+        .connection-dot.disconnected {{ background: transparent; border-color: var(--danger); }}
+        .connection-dot.unknown {{ background: transparent; border-color: var(--accent-warn); }}
+        @keyframes live-pulse {{
+            0%, 100% {{ box-shadow: 0 0 0 0 rgba(var(--accent-live-rgb), 0.0); }}
+            50%      {{ box-shadow: 0 0 0 4px rgba(var(--accent-live-rgb), 0.28); }}
+        }}
+        @media (prefers-reduced-motion: reduce) {{
+            .connection-dot.connected {{ animation: none; box-shadow: 0 0 0 2px rgba(var(--accent-live-rgb), 0.34); }}
+        }}
         .connection-info {{ display: flex; flex-direction: column; }}
-        .connection-status {{ font-weight: bold; font-size: 14px; }}
-        .connection-detail {{ font-size: 12px; color: var(--muted); }}
-        .system-health {{ border: 1px solid var(--border); padding: 10px 16px; margin-bottom: 20px; display: flex; align-items: center; gap: 12px; cursor: pointer; text-decoration: none; color: inherit; }}
-        .system-health:hover {{ border-color: var(--border-strong); }}
-        .health-indicator {{ width: 9px; height: 9px; border: 1px solid var(--border-strong); flex-shrink: 0; background: transparent; }}
-        .health-indicator.healthy {{ background: var(--fg); }}
-        .health-indicator.degraded {{ background: var(--fg); opacity: 0.4; }}
-        .health-indicator.unhealthy {{ background: var(--fg); animation: blink 1s ease-in-out infinite; }}
-        @keyframes blink {{ 0%, 100% {{ opacity: 1; }} 50% {{ opacity: 0.15; }} }}
-        .health-text {{ font-size: 13px; flex: 1; }}
-        .health-summary {{ display: flex; gap: 12px; font-size: 12px; color: var(--muted); }}
+        .connection-status {{ font-weight: bold; font-size: var(--fs-md); }}
+        .connection-detail {{ font-size: var(--fs-sm); color: var(--fg-secondary); }}
+        .system-health {{ border: 1px solid var(--rule); background: var(--bg-surface); padding: 10px var(--gap-4); margin-bottom: 20px; display: flex; align-items: center; gap: var(--gap-3); cursor: pointer; text-decoration: none; color: inherit; transition: background var(--t-fast) var(--ease-out); }}
+        .system-health:hover {{ background: var(--bg-elevated); }}
+        .health-indicator {{ width: 9px; height: 9px; border: 1px solid var(--fg-muted); flex-shrink: 0; background: transparent; }}
+        .health-indicator.healthy {{ background: var(--accent-success); border-color: var(--accent-success); }}
+        .health-indicator.degraded {{ background: var(--accent-warn); border-color: var(--accent-warn); }}
+        .health-indicator.unhealthy {{ background: var(--danger); border-color: var(--danger); animation: danger-blink 1s ease-in-out infinite; }}
+        @keyframes danger-blink {{ 0%, 100% {{ opacity: 1; }} 50% {{ opacity: 0.3; }} }}
+        @media (prefers-reduced-motion: reduce) {{
+            .health-indicator.unhealthy, .health-item-dot.err {{ animation: none; box-shadow: 0 0 0 2px rgba(var(--danger-rgb), 0.34); }}
+        }}
+        .health-text {{ font-size: var(--fs-base); flex: 1; }}
+        .health-summary {{ display: flex; gap: var(--gap-3); font-size: var(--fs-sm); color: var(--fg-secondary); }}
         .health-item {{ display: flex; align-items: center; gap: 4px; }}
-        .health-item-dot {{ width: 6px; height: 6px; border: 1px solid var(--muted); background: transparent; }}
-        .health-item-dot.ok {{ background: var(--fg); border-color: var(--fg); }}
-        .health-item-dot.warn {{ background: var(--fg); opacity: 0.4; border-color: var(--fg); }}
-        .health-item-dot.err {{ background: var(--fg); border-color: var(--fg); animation: blink 1s ease-in-out infinite; }}
-        .filters {{ display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }}
-        .filters select, .filters input {{ background-color: var(--bg); border: 1px solid var(--border); color: var(--fg); padding: 8px 12px; font-family: inherit; font-size: 14px; }}
+        .health-item-dot {{ width: 6px; height: 6px; border: 1px solid var(--fg-muted); background: transparent; }}
+        .health-item-dot.ok {{ background: var(--accent-success); border-color: var(--accent-success); }}
+        .health-item-dot.warn {{ background: var(--accent-warn); border-color: var(--accent-warn); }}
+        .health-item-dot.err {{ background: var(--danger); border-color: var(--danger); animation: danger-blink 1s ease-in-out infinite; }}
+        .filters {{ display: flex; gap: var(--gap-2); margin-bottom: 15px; flex-wrap: wrap; }}
+        .filters select, .filters input {{ background-color: var(--bg-inset); border: 1px solid var(--rule); color: var(--fg-primary); padding: 8px 12px; font-family: inherit; font-size: var(--fs-md); }}
         .filters select {{ min-width: 120px; }}
         .filters input {{ flex: 1; min-width: 150px; }}
-        .filters select:focus, .filters input:focus {{ outline: none; border-color: var(--border-strong); }}
+        .filters select:focus, .filters input:focus {{ outline: none; border-color: var(--accent-cool); }}
         .app-stats {{ margin-bottom: 20px; }}
-        .app-stats table {{ font-size: 14px; width: 100%; border-collapse: collapse; border: 1px solid var(--border); }}
-        .app-stats th, .app-stats td {{ padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }}
-        .app-stats th {{ font-size: 11px; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--border-strong); }}
-        h2 {{ font-size: 14px; margin: 24px 0 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); font-weight: normal; }}
+        .app-stats table {{ font-size: var(--fs-md); width: 100%; border-collapse: collapse; border: 1px solid var(--rule); background: var(--bg-surface); }}
+        .app-stats th, .app-stats td {{ padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--rule); }}
+        .app-stats th {{ font-size: var(--fs-xs); text-transform: uppercase; color: var(--fg-secondary); border-bottom: 1px solid var(--rule-strong); }}
+        h2 {{ font-size: var(--fs-md); margin: 24px 0 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--fg-secondary); font-weight: normal; }}
 
         /* Desktop table */
-        .notif-table {{ width: 100%; border-collapse: collapse; border: 1px solid var(--border); }}
-        .notif-table th, .notif-table td {{ padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); }}
-        .notif-table th {{ font-size: 11px; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--border-strong); }}
-        .notif-table tr.notif-row {{ cursor: pointer; }}
-        .notif-table tr.notif-row:hover {{ background: var(--fg); color: var(--bg); }}
-        .notif-table tr.notif-row:hover .body-cell {{ color: var(--bg); }}
+        .notif-table {{ width: 100%; border-collapse: collapse; border: 1px solid var(--rule); background: var(--bg-surface); }}
+        .notif-table th, .notif-table td {{ padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--rule); }}
+        .notif-table th {{ font-size: var(--fs-xs); text-transform: uppercase; color: var(--fg-secondary); border-bottom: 1px solid var(--rule-strong); }}
+        .notif-table tr.notif-row {{ cursor: pointer; transition: background var(--t-fast) var(--ease-out); }}
+        .notif-table tr.notif-row:hover {{ background: var(--bg-elevated); }}
+        .action-sent {{ color: var(--accent-success); }}
+        .action-dropped {{ color: var(--danger); }}
+        .action-rate_limited {{ color: var(--accent-warn); }}
         .action-sent::before {{ content: "✓ "; }}
         .action-dropped::before {{ content: "✗ "; }}
         .action-rate_limited::before {{ content: "» "; }}
-        .badge-duplicate {{ border: 1px solid currentColor; font-size: 10px; padding: 1px 5px; margin-left: 6px; text-transform: uppercase; }}
+        .badge-duplicate {{ border: 1px solid var(--fg-muted); color: var(--fg-muted); font-size: 10px; padding: 1px 5px; margin-left: 6px; text-transform: uppercase; }}
         .truncate {{ max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
-        .body-cell {{ color: var(--muted); }}
+        .body-cell {{ color: var(--fg-secondary); }}
         .feedback {{ display: flex; gap: 5px; }}
-        .feedback button {{ padding: 4px 8px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); cursor: pointer; font-size: 13px; font-family: inherit; }}
-        .feedback .wrong:hover {{ background: var(--fg); color: var(--bg); }}
-        .feedback .wrong.selected {{ background: var(--fg); color: var(--bg); border-color: var(--fg); }}
+        .feedback button {{ padding: 4px 8px; border: 1px solid var(--rule); background: var(--bg-surface); color: var(--fg-primary); cursor: pointer; font-size: var(--fs-base); font-family: inherit; transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out), border-color var(--t-fast) var(--ease-out); }}
+        .feedback .wrong:hover {{ background: var(--bg-elevated); color: var(--accent-signoff); border-color: var(--accent-signoff); }}
+        .feedback .wrong.selected {{ background: var(--accent-signoff); color: var(--bg-base); border-color: var(--accent-signoff); font-weight: 700; }}
 
         /* Expanded row */
         .notif-expanded {{ display: none; }}
         .notif-expanded.show {{ display: table-row; }}
-        .notif-expanded td {{ padding: 15px; border-top: 1px dashed var(--border); }}
+        .notif-expanded td {{ padding: 15px; border-top: 1px dashed var(--rule); background: var(--bg-inset); }}
         .notif-detail {{ display: grid; gap: 10px; }}
         .notif-detail-row {{ display: flex; gap: 10px; }}
-        .notif-detail-label {{ font-size: 11px; color: var(--dim); text-transform: uppercase; min-width: 60px; }}
-        .notif-detail-value {{ font-size: 13px; word-break: break-word; }}
+        .notif-detail-label {{ font-size: var(--fs-xs); color: var(--fg-muted); text-transform: uppercase; min-width: 60px; }}
+        .notif-detail-value {{ font-size: var(--fs-base); word-break: break-word; }}
 
         /* Mobile cards */
         .notif-cards {{ display: none; }}
-        .notif-card {{ border: 1px solid var(--border); padding: 12px; margin-bottom: 10px; cursor: pointer; }}
+        .notif-card {{ border: 1px solid var(--rule); background: var(--bg-surface); padding: 12px; margin-bottom: 10px; cursor: pointer; }}
         .notif-card-header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }}
-        .notif-card-app {{ font-weight: bold; font-size: 14px; }}
-        .notif-card-time {{ font-size: 12px; color: var(--muted); }}
-        .notif-card-title {{ font-size: 14px; margin-bottom: 4px; }}
-        .notif-card-body {{ font-size: 13px; color: var(--muted); margin-bottom: 8px; }}
+        .notif-card-app {{ font-weight: bold; font-size: var(--fs-md); }}
+        .notif-card-time {{ font-size: var(--fs-sm); color: var(--fg-secondary); }}
+        .notif-card-title {{ font-size: var(--fs-md); margin-bottom: 4px; }}
+        .notif-card-body {{ font-size: var(--fs-base); color: var(--fg-secondary); margin-bottom: 8px; }}
         .notif-card-body.truncate {{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
         .notif-card-body.expanded {{ white-space: normal; word-break: break-word; }}
         .notif-card-footer {{ display: flex; justify-content: space-between; align-items: center; }}
-        .notif-card-action {{ font-size: 12px; font-weight: bold; }}
-        .notif-card-reason {{ font-size: 11px; color: var(--muted); margin-top: 4px; }}
+        .notif-card-action {{ font-size: var(--fs-sm); font-weight: bold; }}
+        .notif-card-reason {{ font-size: var(--fs-xs); color: var(--fg-secondary); margin-top: 4px; }}
         .notif-card-reason.truncate {{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }}
         .notif-card-reason.expanded {{ white-space: normal; word-break: break-word; max-width: none; }}
 
         /* Insights panel */
-        .insights {{ border: 1px solid var(--border); padding: 16px; margin-bottom: 20px; }}
+        .insights {{ border: 1px solid var(--rule); background: var(--bg-surface); padding: var(--gap-4); margin-bottom: 20px; }}
         .insights-header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }}
-        .insights-header h3 {{ margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; font-weight: normal; color: var(--muted); }}
-        .insights-stats {{ font-size: 12px; color: var(--muted); }}
-        .insights-empty {{ color: var(--dim); font-size: 13px; text-align: center; padding: 20px; }}
-        .suggestion {{ border: 1px solid var(--border); padding: 12px; margin-bottom: 8px; }}
+        .insights-header h3 {{ margin: 0; font-size: var(--fs-base); text-transform: uppercase; letter-spacing: 1px; font-weight: normal; color: var(--fg-secondary); }}
+        .insights-stats {{ font-size: var(--fs-sm); color: var(--fg-secondary); }}
+        .insights-empty {{ color: var(--fg-muted); font-size: var(--fs-base); text-align: center; padding: 20px; }}
+        .suggestion {{ border: 1px solid var(--rule); background: var(--bg-inset); padding: 12px; margin-bottom: 8px; }}
         .suggestion:last-child {{ margin-bottom: 0; }}
         .suggestion-header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }}
-        .suggestion-type {{ font-size: 11px; text-transform: uppercase; font-weight: bold; padding: 1px 6px; border: 1px solid currentColor; }}
+        .suggestion-type {{ font-size: var(--fs-xs); text-transform: uppercase; font-weight: bold; padding: 1px 6px; border: 1px solid currentColor; }}
+        .suggestion-type.drop {{ color: var(--danger); }}
+        .suggestion-type.send {{ color: var(--accent-success); }}
         .suggestion-type.drop::before {{ content: "✗ "; }}
         .suggestion-type.send::before {{ content: "✓ "; }}
-        .suggestion-app {{ font-size: 12px; color: var(--muted); }}
-        .suggestion-pattern {{ font-size: 14px; margin-bottom: 4px; }}
-        .suggestion-reason {{ font-size: 12px; color: var(--muted); margin-bottom: 8px; }}
-        .suggestion-rule {{ font-family: inherit; font-size: 11px; border: 1px dashed var(--border); padding: 8px; white-space: pre; overflow-x: auto; }}
-        .suggestion-actions {{ display: flex; gap: 8px; margin-top: 8px; }}
-        .suggestion-copy, .suggestion-dismiss, .suggestion-add {{ font-size: 11px; font-family: inherit; background: var(--bg); color: var(--fg); border: 1px solid var(--border); padding: 4px 8px; cursor: pointer; text-transform: uppercase; }}
-        .suggestion-copy:hover, .suggestion-dismiss:hover, .suggestion-add:hover {{ background: var(--fg); color: var(--bg); border-color: var(--fg); }}
+        .suggestion-app {{ font-size: var(--fs-sm); color: var(--fg-secondary); }}
+        .suggestion-pattern {{ font-size: var(--fs-md); margin-bottom: 4px; }}
+        .suggestion-reason {{ font-size: var(--fs-sm); color: var(--fg-secondary); margin-bottom: 8px; }}
+        .suggestion-rule {{ font-family: inherit; font-size: var(--fs-xs); border: 1px dashed var(--rule); padding: 8px; white-space: pre; overflow-x: auto; color: var(--fg-secondary); }}
+        .suggestion-actions {{ display: flex; gap: var(--gap-2); margin-top: 8px; }}
+        .suggestion-copy, .suggestion-dismiss, .suggestion-add {{ font-size: var(--fs-xs); font-family: inherit; background: var(--bg-surface); color: var(--fg-primary); border: 1px solid var(--rule-strong); padding: 4px 8px; cursor: pointer; text-transform: uppercase; transition: background var(--t-fast) var(--ease-out); }}
+        .suggestion-add {{ color: var(--accent-success); border-color: var(--accent-success); }}
+        .suggestion-copy:hover, .suggestion-dismiss:hover {{ background: var(--bg-elevated); }}
+        .suggestion-add:hover {{ background: var(--bg-elevated); }}
 
         /* Rules panel */
-        .rules-panel {{ border: 1px solid var(--border); padding: 16px; margin-bottom: 20px; }}
+        .rules-panel {{ border: 1px solid var(--rule); background: var(--bg-surface); padding: var(--gap-4); margin-bottom: 20px; }}
         .rules-filter {{ margin-bottom: 12px; }}
-        .rules-filter select {{ background-color: var(--bg); border: 1px solid var(--border); color: var(--fg); padding: 6px 10px; font-family: inherit; }}
-        .rule-item {{ display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid var(--border); margin-bottom: 6px; flex-wrap: wrap; }}
-        .rule-app {{ font-weight: bold; min-width: 80px; color: var(--muted); }}
-        .rule-matcher {{ color: var(--muted); }}
-        .rule-value {{ color: var(--fg); flex: 1; min-width: 150px; word-break: break-all; }}
-        .rule-action {{ font-size: 12px; font-weight: bold; padding: 1px 8px; border: 1px solid currentColor; text-transform: uppercase; }}
+        .rules-filter select {{ background-color: var(--bg-inset); border: 1px solid var(--rule); color: var(--fg-primary); padding: 6px 10px; font-family: inherit; }}
+        .rule-item {{ display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid var(--rule); background: var(--bg-surface); margin-bottom: 6px; flex-wrap: wrap; }}
+        .rule-app {{ font-weight: bold; min-width: 80px; color: var(--fg-secondary); }}
+        .rule-matcher {{ color: var(--fg-secondary); }}
+        .rule-value {{ color: var(--fg-primary); flex: 1; min-width: 150px; word-break: break-all; }}
+        .rule-action {{ font-size: var(--fs-sm); font-weight: bold; padding: 1px 8px; border: 1px solid currentColor; text-transform: uppercase; }}
+        .rule-action.send {{ color: var(--accent-success); }}
+        .rule-action.drop {{ color: var(--danger); }}
+        .rule-action.llm {{ color: var(--accent-steel); border-style: dashed; }}
         .rule-action.send::before {{ content: "✓ "; }}
         .rule-action.drop::before {{ content: "✗ "; }}
         .rule-action.llm::before {{ content: "† "; }}
-        .rule-default {{ opacity: 0.6; font-style: italic; }}
-        .rule-delete {{ background: var(--bg); color: var(--fg); border: 1px solid var(--border); padding: 4px 8px; cursor: pointer; font-size: 11px; font-family: inherit; text-transform: uppercase; }}
-        .rule-delete:hover {{ background: var(--fg); color: var(--bg); border-color: var(--fg); }}
-        .rule-priority {{ font-size: 10px; border: 1px solid currentColor; padding: 1px 6px; text-transform: uppercase; }}
-        .ai-button {{ background: var(--bg); color: var(--fg); border: 1px solid var(--border-strong); padding: 8px 16px; cursor: pointer; font-size: 13px; font-family: inherit; text-transform: uppercase; letter-spacing: 0.5px; }}
-        .ai-button:hover {{ background: var(--fg); color: var(--bg); }}
+        .rule-default {{ opacity: 0.7; font-style: italic; }}
+        .rule-delete {{ background: var(--bg-surface); color: var(--danger); border: 1px solid var(--rule); padding: 4px 8px; cursor: pointer; font-size: var(--fs-xs); font-family: inherit; text-transform: uppercase; transition: background var(--t-fast) var(--ease-out), border-color var(--t-fast) var(--ease-out); }}
+        .rule-delete:hover {{ background: var(--bg-elevated); border-color: var(--danger); }}
+        .rule-priority {{ font-size: 10px; border: 1px solid var(--fg-secondary); color: var(--fg-secondary); padding: 1px 6px; text-transform: uppercase; }}
+        .rule-priority--high {{ border-color: var(--accent-warn); color: var(--accent-warn); }}
+        .rule-priority--critical {{ border-color: var(--danger); color: var(--danger); }}
+        .ai-button {{ background: var(--bg-surface); color: var(--fg-primary); border: 1px solid var(--rule-strong); padding: 8px 16px; cursor: pointer; font-size: var(--fs-base); font-family: inherit; text-transform: uppercase; letter-spacing: 0.5px; transition: background var(--t-fast) var(--ease-out); }}
+        .ai-button:hover {{ background: var(--bg-elevated); }}
 
         @media (max-width: 768px) {{
             body {{ padding: 12px; }}
             .notif-table {{ display: none; }}
             .notif-cards {{ display: block; }}
             .stat {{ padding: 10px 12px; }}
-            .stat-value {{ font-size: 18px; }}
+            .stat-value {{ font-size: var(--fs-lg); }}
             .app-stats {{ display: none; }}
             .insights-header {{ flex-direction: column; gap: 8px; align-items: flex-start; }}
         }}
