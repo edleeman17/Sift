@@ -82,8 +82,8 @@ async def dashboard():
             <td class="action-{n['action']}">{n['action']}</td>
             <td>{(n['reason'] or '')[:50]}</td>
             <td class="feedback">
-                <button class="good {'selected' if n.get('feedback') == 'good' else ''}" onclick="feedback({n['id']}, 'good')">👍</button>
-                <button class="bad {'selected' if n.get('feedback') == 'bad' else ''}" onclick="feedback({n['id']}, 'bad')">👎</button>
+                <button class="good {'selected' if n.get('feedback') == 'good' else ''}" onclick="feedback({n['id']}, 'good')">OK</button>
+                <button class="bad {'selected' if n.get('feedback') == 'bad' else ''}" onclick="feedback({n['id']}, 'bad')">X</button>
             </td>
         </tr>"""
         for n in notifications

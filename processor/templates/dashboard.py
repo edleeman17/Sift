@@ -7,148 +7,146 @@ DASHBOARD_HTML = """
     <title>Sift</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
+        :root {{
+            --bg: #000; --fg: #fff; --muted: #999; --dim: #666; --border: #333; --border-strong: #fff;
+        }}
         * {{ box-sizing: border-box; }}
-        body {{ font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 0; padding: 20px; background: #1a1a1a; color: #e0e0e0; }}
-        h1 {{ margin: 0 0 20px; font-size: 24px; }}
-        .stats {{ display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }}
-        .stat {{ background: #2a2a2a; padding: 12px 16px; border-radius: 8px; min-width: 80px; flex: 1; }}
-        .stat-value {{ font-size: 24px; font-weight: bold; }}
-        .stat-label {{ font-size: 11px; color: #888; text-transform: uppercase; }}
-        .stat.sent .stat-value {{ color: #4ade80; }}
-        .stat.dropped .stat-value {{ color: #f87171; }}
-        .stat.rate_limited .stat-value {{ color: #fbbf24; }}
-        .connection {{ background: #2a2a2a; padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; display: flex; align-items: center; gap: 12px; }}
-        .connection-dot {{ width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }}
-        .connection-dot.connected {{ background: #3b82f6; animation: pulse 2s ease-in-out infinite; }}
-        .connection-dot.disconnected {{ background: #f87171; box-shadow: 0 0 8px #f87171; }}
-        .connection-dot.unknown {{ background: #fbbf24; }}
-        @keyframes pulse {{ 0%, 100% {{ box-shadow: 0 0 4px #3b82f6; }} 50% {{ box-shadow: 0 0 16px #3b82f6, 0 0 24px #3b82f6; }} }}
+        body {{ font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; margin: 0; padding: 20px; background: var(--bg); color: var(--fg); }}
+        h1 {{ margin: 0 0 20px; font-size: 22px; font-weight: normal; text-transform: uppercase; letter-spacing: 2px; border-bottom: 1px solid var(--border-strong); padding-bottom: 12px; }}
+        a {{ color: var(--fg); }}
+        .stats {{ display: flex; gap: 0; margin-bottom: 20px; flex-wrap: wrap; border: 1px solid var(--border); }}
+        .stat {{ padding: 12px 16px; min-width: 80px; flex: 1; border-right: 1px solid var(--border); }}
+        .stat:last-child {{ border-right: none; }}
+        .stat-value {{ font-size: 22px; font-weight: bold; }}
+        .stat-label {{ font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }}
+        .connection {{ border: 1px solid var(--border); padding: 12px 16px; margin-bottom: 20px; display: flex; align-items: center; gap: 12px; }}
+        .connection-dot {{ width: 10px; height: 10px; border-radius: 50%; border: 1px solid var(--border-strong); flex-shrink: 0; background: transparent; }}
+        .connection-dot.connected {{ background: var(--fg); animation: pulse 2s ease-in-out infinite; }}
+        .connection-dot.disconnected {{ background: transparent; border-style: dashed; }}
+        .connection-dot.unknown {{ background: var(--fg); opacity: 0.4; }}
+        @keyframes pulse {{ 0%, 100% {{ opacity: 1; }} 50% {{ opacity: 0.35; }} }}
         .connection-info {{ display: flex; flex-direction: column; }}
         .connection-status {{ font-weight: bold; font-size: 14px; }}
-        .connection-detail {{ font-size: 12px; color: #888; }}
-        .system-health {{ background: #2a2a2a; padding: 10px 16px; border-radius: 8px; margin-bottom: 20px; display: flex; align-items: center; gap: 12px; cursor: pointer; text-decoration: none; color: inherit; }}
-        .system-health:hover {{ background: #333; }}
-        .health-indicator {{ width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }}
-        .health-indicator.healthy {{ background: #4ade80; }}
-        .health-indicator.degraded {{ background: #fbbf24; }}
-        .health-indicator.unhealthy {{ background: #f87171; animation: blink 1s ease-in-out infinite; }}
-        @keyframes blink {{ 0%, 100% {{ opacity: 1; }} 50% {{ opacity: 0.4; }} }}
+        .connection-detail {{ font-size: 12px; color: var(--muted); }}
+        .system-health {{ border: 1px solid var(--border); padding: 10px 16px; margin-bottom: 20px; display: flex; align-items: center; gap: 12px; cursor: pointer; text-decoration: none; color: inherit; }}
+        .system-health:hover {{ border-color: var(--border-strong); }}
+        .health-indicator {{ width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--border-strong); flex-shrink: 0; background: transparent; }}
+        .health-indicator.healthy {{ background: var(--fg); }}
+        .health-indicator.degraded {{ background: var(--fg); opacity: 0.4; }}
+        .health-indicator.unhealthy {{ background: var(--fg); animation: blink 1s ease-in-out infinite; }}
+        @keyframes blink {{ 0%, 100% {{ opacity: 1; }} 50% {{ opacity: 0.15; }} }}
         .health-text {{ font-size: 13px; flex: 1; }}
-        .health-summary {{ display: flex; gap: 12px; font-size: 12px; color: #888; }}
+        .health-summary {{ display: flex; gap: 12px; font-size: 12px; color: var(--muted); }}
         .health-item {{ display: flex; align-items: center; gap: 4px; }}
-        .health-item-dot {{ width: 6px; height: 6px; border-radius: 50%; }}
-        .health-item-dot.ok {{ background: #4ade80; }}
-        .health-item-dot.warn {{ background: #fbbf24; }}
-        .health-item-dot.err {{ background: #f87171; }}
+        .health-item-dot {{ width: 6px; height: 6px; border-radius: 50%; border: 1px solid var(--muted); background: transparent; }}
+        .health-item-dot.ok {{ background: var(--fg); border-color: var(--fg); }}
+        .health-item-dot.warn {{ background: var(--fg); opacity: 0.4; border-color: var(--fg); }}
+        .health-item-dot.err {{ background: var(--fg); border-color: var(--fg); animation: blink 1s ease-in-out infinite; }}
         .filters {{ display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }}
-        .filters select, .filters input {{ background: #2a2a2a; border: 1px solid #3a3a3a; color: #e0e0e0; padding: 8px 12px; border-radius: 6px; font-size: 14px; }}
+        .filters select, .filters input {{ background: var(--bg); border: 1px solid var(--border); color: var(--fg); padding: 8px 12px; font-family: inherit; font-size: 14px; }}
         .filters select {{ min-width: 120px; }}
         .filters input {{ flex: 1; min-width: 150px; }}
-        .filters select:focus, .filters input:focus {{ outline: none; border-color: #3b82f6; }}
+        .filters select:focus, .filters input:focus {{ outline: none; border-color: var(--border-strong); }}
         .app-stats {{ margin-bottom: 20px; }}
-        .app-stats table {{ font-size: 14px; width: 100%; border-collapse: collapse; background: #2a2a2a; border-radius: 8px; overflow: hidden; }}
-        .app-stats th, .app-stats td {{ padding: 8px 12px; text-align: left; border-bottom: 1px solid #3a3a3a; }}
-        .app-stats th {{ background: #333; font-size: 11px; text-transform: uppercase; color: #888; }}
-        h2 {{ font-size: 16px; margin: 20px 0 10px; }}
+        .app-stats table {{ font-size: 14px; width: 100%; border-collapse: collapse; border: 1px solid var(--border); }}
+        .app-stats th, .app-stats td {{ padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }}
+        .app-stats th {{ font-size: 11px; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--border-strong); }}
+        h2 {{ font-size: 14px; margin: 24px 0 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); font-weight: normal; }}
 
         /* Desktop table */
-        .notif-table {{ width: 100%; border-collapse: collapse; background: #2a2a2a; border-radius: 8px; overflow: hidden; }}
-        .notif-table th, .notif-table td {{ padding: 10px 12px; text-align: left; border-bottom: 1px solid #3a3a3a; }}
-        .notif-table th {{ background: #333; font-size: 11px; text-transform: uppercase; color: #888; }}
+        .notif-table {{ width: 100%; border-collapse: collapse; border: 1px solid var(--border); }}
+        .notif-table th, .notif-table td {{ padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); }}
+        .notif-table th {{ font-size: 11px; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--border-strong); }}
         .notif-table tr.notif-row {{ cursor: pointer; }}
-        .notif-table tr.notif-row:hover {{ background: #333; }}
-        .action-sent {{ color: #4ade80; }}
-        .action-dropped {{ color: #f87171; }}
-        .action-rate_limited {{ color: #fbbf24; }}
-        .badge-duplicate {{ background: #7c3aed; color: white; font-size: 10px; padding: 2px 6px; border-radius: 3px; margin-left: 6px; }}
+        .notif-table tr.notif-row:hover {{ background: var(--fg); color: var(--bg); }}
+        .notif-table tr.notif-row:hover .body-cell {{ color: var(--bg); }}
+        .action-sent::before {{ content: "✓ "; }}
+        .action-dropped::before {{ content: "✗ "; }}
+        .action-rate_limited::before {{ content: "» "; }}
+        .badge-duplicate {{ border: 1px solid currentColor; font-size: 10px; padding: 1px 5px; margin-left: 6px; text-transform: uppercase; }}
         .truncate {{ max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
-        .body-cell {{ color: #888; }}
+        .body-cell {{ color: var(--muted); }}
         .feedback {{ display: flex; gap: 5px; }}
-        .feedback button {{ padding: 4px 8px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }}
-        .feedback .wrong {{ background: #374151; color: #9ca3af; }}
-        .feedback .wrong:hover {{ background: #4b5563; color: white; }}
-        .feedback .wrong.selected {{ background: #991b1b; color: white; }}
+        .feedback button {{ padding: 4px 8px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); cursor: pointer; font-size: 13px; font-family: inherit; }}
+        .feedback .wrong:hover {{ background: var(--fg); color: var(--bg); }}
+        .feedback .wrong.selected {{ background: var(--fg); color: var(--bg); border-color: var(--fg); }}
 
         /* Expanded row */
-        .notif-expanded {{ display: none; background: #252525; }}
+        .notif-expanded {{ display: none; }}
         .notif-expanded.show {{ display: table-row; }}
-        .notif-expanded td {{ padding: 15px; }}
+        .notif-expanded td {{ padding: 15px; border-top: 1px dashed var(--border); }}
         .notif-detail {{ display: grid; gap: 10px; }}
         .notif-detail-row {{ display: flex; gap: 10px; }}
-        .notif-detail-label {{ font-size: 11px; color: #666; text-transform: uppercase; min-width: 60px; }}
+        .notif-detail-label {{ font-size: 11px; color: var(--dim); text-transform: uppercase; min-width: 60px; }}
         .notif-detail-value {{ font-size: 13px; word-break: break-word; }}
 
         /* Mobile cards */
         .notif-cards {{ display: none; }}
-        .notif-card {{ background: #2a2a2a; border-radius: 8px; padding: 12px; margin-bottom: 10px; cursor: pointer; }}
+        .notif-card {{ border: 1px solid var(--border); padding: 12px; margin-bottom: 10px; cursor: pointer; }}
         .notif-card-header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }}
         .notif-card-app {{ font-weight: bold; font-size: 14px; }}
-        .notif-card-time {{ font-size: 12px; color: #888; }}
+        .notif-card-time {{ font-size: 12px; color: var(--muted); }}
         .notif-card-title {{ font-size: 14px; margin-bottom: 4px; }}
-        .notif-card-body {{ font-size: 13px; color: #888; margin-bottom: 8px; }}
+        .notif-card-body {{ font-size: 13px; color: var(--muted); margin-bottom: 8px; }}
         .notif-card-body.truncate {{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
         .notif-card-body.expanded {{ white-space: normal; word-break: break-word; }}
         .notif-card-footer {{ display: flex; justify-content: space-between; align-items: center; }}
         .notif-card-action {{ font-size: 12px; font-weight: bold; }}
-        .notif-card-reason {{ font-size: 11px; color: #888; margin-top: 4px; }}
+        .notif-card-reason {{ font-size: 11px; color: var(--muted); margin-top: 4px; }}
         .notif-card-reason.truncate {{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }}
         .notif-card-reason.expanded {{ white-space: normal; word-break: break-word; max-width: none; }}
 
         /* Insights panel */
-        .insights {{ background: #2a2a2a; border-radius: 8px; padding: 16px; margin-bottom: 20px; }}
+        .insights {{ border: 1px solid var(--border); padding: 16px; margin-bottom: 20px; }}
         .insights-header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }}
-        .insights-header h3 {{ margin: 0; font-size: 14px; }}
-        .insights-stats {{ font-size: 12px; color: #888; }}
-        .insights-empty {{ color: #666; font-size: 13px; text-align: center; padding: 20px; }}
-        .suggestion {{ background: #333; border-radius: 6px; padding: 12px; margin-bottom: 8px; }}
+        .insights-header h3 {{ margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; font-weight: normal; color: var(--muted); }}
+        .insights-stats {{ font-size: 12px; color: var(--muted); }}
+        .insights-empty {{ color: var(--dim); font-size: 13px; text-align: center; padding: 20px; }}
+        .suggestion {{ border: 1px solid var(--border); padding: 12px; margin-bottom: 8px; }}
         .suggestion:last-child {{ margin-bottom: 0; }}
         .suggestion-header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }}
-        .suggestion-type {{ font-size: 11px; text-transform: uppercase; font-weight: bold; padding: 2px 6px; border-radius: 3px; }}
-        .suggestion-type.drop {{ background: #991b1b; color: white; }}
-        .suggestion-type.send {{ background: #166534; color: white; }}
-        .suggestion-app {{ font-size: 12px; color: #888; }}
+        .suggestion-type {{ font-size: 11px; text-transform: uppercase; font-weight: bold; padding: 1px 6px; border: 1px solid currentColor; }}
+        .suggestion-type.drop::before {{ content: "✗ "; }}
+        .suggestion-type.send::before {{ content: "✓ "; }}
+        .suggestion-app {{ font-size: 12px; color: var(--muted); }}
         .suggestion-pattern {{ font-size: 14px; margin-bottom: 4px; }}
-        .suggestion-reason {{ font-size: 12px; color: #888; margin-bottom: 8px; }}
-        .suggestion-rule {{ font-family: monospace; font-size: 11px; background: #1a1a1a; padding: 8px; border-radius: 4px; white-space: pre; overflow-x: auto; }}
+        .suggestion-reason {{ font-size: 12px; color: var(--muted); margin-bottom: 8px; }}
+        .suggestion-rule {{ font-family: inherit; font-size: 11px; border: 1px dashed var(--border); padding: 8px; white-space: pre; overflow-x: auto; }}
         .suggestion-actions {{ display: flex; gap: 8px; margin-top: 8px; }}
-        .suggestion-copy {{ font-size: 11px; background: #3b82f6; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; }}
-        .suggestion-copy:hover {{ background: #2563eb; }}
-        .suggestion-dismiss {{ font-size: 11px; background: #4b5563; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; }}
-        .suggestion-dismiss:hover {{ background: #6b7280; }}
-        .suggestion-add {{ font-size: 11px; background: #166534; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; }}
-        .suggestion-add:hover {{ background: #15803d; }}
+        .suggestion-copy, .suggestion-dismiss, .suggestion-add {{ font-size: 11px; font-family: inherit; background: var(--bg); color: var(--fg); border: 1px solid var(--border); padding: 4px 8px; cursor: pointer; text-transform: uppercase; }}
+        .suggestion-copy:hover, .suggestion-dismiss:hover, .suggestion-add:hover {{ background: var(--fg); color: var(--bg); border-color: var(--fg); }}
 
         /* Rules panel */
-        .rules-panel {{ background: #2a2a2a; border-radius: 8px; padding: 16px; margin-bottom: 20px; }}
+        .rules-panel {{ border: 1px solid var(--border); padding: 16px; margin-bottom: 20px; }}
         .rules-filter {{ margin-bottom: 12px; }}
-        .rules-filter select {{ background: #333; border: 1px solid #444; color: #e0e0e0; padding: 6px 10px; border-radius: 4px; }}
-        .rule-item {{ display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: #333; border-radius: 6px; margin-bottom: 6px; flex-wrap: wrap; }}
-        .rule-app {{ font-weight: bold; min-width: 80px; color: #9ca3af; }}
-        .rule-matcher {{ color: #60a5fa; }}
-        .rule-value {{ color: #fbbf24; flex: 1; min-width: 150px; word-break: break-all; }}
-        .rule-action {{ font-size: 12px; font-weight: bold; padding: 2px 8px; border-radius: 3px; }}
-        .rule-action.send {{ background: #166534; color: white; }}
-        .rule-action.drop {{ background: #991b1b; color: white; }}
-        .rule-action.llm {{ background: #7c3aed; color: white; }}
+        .rules-filter select {{ background: var(--bg); border: 1px solid var(--border); color: var(--fg); padding: 6px 10px; font-family: inherit; }}
+        .rule-item {{ display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid var(--border); margin-bottom: 6px; flex-wrap: wrap; }}
+        .rule-app {{ font-weight: bold; min-width: 80px; color: var(--muted); }}
+        .rule-matcher {{ color: var(--muted); }}
+        .rule-value {{ color: var(--fg); flex: 1; min-width: 150px; word-break: break-all; }}
+        .rule-action {{ font-size: 12px; font-weight: bold; padding: 1px 8px; border: 1px solid currentColor; text-transform: uppercase; }}
+        .rule-action.send::before {{ content: "✓ "; }}
+        .rule-action.drop::before {{ content: "✗ "; }}
+        .rule-action.llm::before {{ content: "† "; }}
         .rule-default {{ opacity: 0.6; font-style: italic; }}
-        .rule-delete {{ background: #dc2626; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; }}
-        .rule-delete:hover {{ background: #b91c1c; }}
-        .rule-priority {{ font-size: 10px; background: #f97316; color: white; padding: 2px 6px; border-radius: 3px; }}
-        .ai-button {{ background: #8b5cf6; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; }}
-        .ai-button:hover {{ background: #7c3aed; }}
-        .ai-button:disabled {{ background: #4b5563; cursor: not-allowed; }}
-        .ai-analysis {{ background: #1a1a1a; border-radius: 6px; padding: 16px; margin-top: 12px; white-space: pre-wrap; font-size: 13px; line-height: 1.5; max-height: 400px; overflow-y: auto; }}
-        .ai-analysis code {{ background: #333; padding: 2px 6px; border-radius: 3px; }}
-        .ai-analysis pre {{ background: #333; padding: 12px; border-radius: 6px; overflow-x: auto; }}
+        .rule-delete {{ background: var(--bg); color: var(--fg); border: 1px solid var(--border); padding: 4px 8px; cursor: pointer; font-size: 11px; font-family: inherit; text-transform: uppercase; }}
+        .rule-delete:hover {{ background: var(--fg); color: var(--bg); border-color: var(--fg); }}
+        .rule-priority {{ font-size: 10px; border: 1px solid currentColor; padding: 1px 6px; text-transform: uppercase; }}
+        .ai-button {{ background: var(--bg); color: var(--fg); border: 1px solid var(--border-strong); padding: 8px 16px; cursor: pointer; font-size: 13px; font-family: inherit; text-transform: uppercase; letter-spacing: 0.5px; }}
+        .ai-button:hover {{ background: var(--fg); color: var(--bg); }}
+        .ai-button:disabled {{ opacity: 0.4; cursor: not-allowed; }}
+        .ai-analysis {{ border: 1px solid var(--border); padding: 16px; margin-top: 12px; white-space: pre-wrap; font-size: 13px; line-height: 1.5; max-height: 400px; overflow-y: auto; }}
+        .ai-analysis code {{ border: 1px solid var(--border); padding: 2px 6px; }}
+        .ai-analysis pre {{ border: 1px solid var(--border); padding: 12px; overflow-x: auto; }}
 
         @media (max-width: 768px) {{
             body {{ padding: 12px; }}
             .notif-table {{ display: none; }}
             .notif-cards {{ display: block; }}
             .stat {{ padding: 10px 12px; }}
-            .stat-value {{ font-size: 20px; }}
+            .stat-value {{ font-size: 18px; }}
             .app-stats {{ display: none; }}
-            .insights-header {{ flex-direction: column; gap: 8px; }}
+            .insights-header {{ flex-direction: column; gap: 8px; align-items: flex-start; }}
         }}
     </style>
 </head>
@@ -201,8 +199,8 @@ DASHBOARD_HTML = """
 
     <div style="margin-bottom: 20px; display: flex; gap: 10px;">
         <a href="/rules" class="ai-button" style="text-decoration: none;">Manage Rules</a>
-        <a href="/status" class="ai-button" style="text-decoration: none; background: #374151;">System Status</a>
-        <a href="/debug" class="ai-button" style="text-decoration: none; background: #374151;">Logs</a>
+        <a href="/status" class="ai-button" style="text-decoration: none;">System Status</a>
+        <a href="/debug" class="ai-button" style="text-decoration: none;">Logs</a>
     </div>
 
     <h2>Recent Notifications</h2>
@@ -508,7 +506,7 @@ DASHBOARD_HTML = """
                 ];
 
                 if (allItems.length === 0) {{
-                    contentEl.innerHTML = '<div class="insights-empty">No suggestions yet. Rate more notifications with 👍/👎 to get rule suggestions.</div>';
+                    contentEl.innerHTML = '<div class="insights-empty">No suggestions yet. Rate more notifications (mark wrong) to get rule suggestions.</div>';
                     return;
                 }}
 

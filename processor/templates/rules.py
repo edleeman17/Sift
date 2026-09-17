@@ -7,41 +7,44 @@ RULES_HTML = """
     <title>Rules - Sift</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
+        :root {
+            --bg: #000; --fg: #fff; --muted: #999; --dim: #666; --border: #333; --border-strong: #fff;
+        }
         * { box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 0; padding: 20px; background: #1a1a1a; color: #e0e0e0; }
-        h1 { margin: 0 0 20px; font-size: 24px; display: flex; align-items: center; gap: 15px; }
-        a.back { color: #60a5fa; text-decoration: none; font-size: 14px; }
+        body { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; margin: 0; padding: 20px; background: var(--bg); color: var(--fg); }
+        h1 { margin: 0 0 20px; font-size: 22px; font-weight: normal; text-transform: uppercase; letter-spacing: 2px; display: flex; align-items: center; gap: 15px; border-bottom: 1px solid var(--border-strong); padding-bottom: 12px; }
+        a.back { color: var(--fg); text-decoration: none; font-size: 14px; text-transform: none; letter-spacing: normal; }
         a.back:hover { text-decoration: underline; }
         .rules-filter { margin-bottom: 15px; display: flex; gap: 10px; flex-wrap: wrap; }
-        .rules-filter select { background: #2a2a2a; border: 1px solid #3a3a3a; color: #e0e0e0; padding: 8px 12px; border-radius: 6px; }
-        .rule-item { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #2a2a2a; border-radius: 6px; margin-bottom: 8px; flex-wrap: wrap; }
-        .rule-app { font-weight: bold; min-width: 100px; color: #9ca3af; }
-        .rule-matcher { color: #60a5fa; min-width: 120px; }
-        .rule-value { color: #fbbf24; flex: 1; min-width: 150px; word-break: break-all; }
-        .rule-action { font-size: 12px; font-weight: bold; padding: 3px 10px; border-radius: 4px; }
-        .rule-action.send { background: #166534; color: white; }
-        .rule-action.drop { background: #991b1b; color: white; }
-        .rule-action.llm { background: #7c3aed; color: white; }
+        .rules-filter select { background: var(--bg); border: 1px solid var(--border); color: var(--fg); padding: 8px 12px; font-family: inherit; }
+        .rule-item { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border: 1px solid var(--border); margin-bottom: 8px; flex-wrap: wrap; }
+        .rule-app { font-weight: bold; min-width: 100px; color: var(--muted); }
+        .rule-matcher { color: var(--muted); min-width: 120px; }
+        .rule-value { color: var(--fg); flex: 1; min-width: 150px; word-break: break-all; }
+        .rule-action { font-size: 12px; font-weight: bold; padding: 2px 10px; border: 1px solid currentColor; text-transform: uppercase; }
+        .rule-action.send::before { content: "✓ "; }
+        .rule-action.drop::before { content: "✗ "; }
+        .rule-action.llm::before { content: "† "; }
         .rule-default { opacity: 0.8; }
-        .default-action-select { background: #333; border: 1px solid #555; color: #e0e0e0; padding: 4px 8px; border-radius: 4px; cursor: pointer; }
-        .rule-global { background: #1e3a5f; border: 1px solid #3b82f6; }
-        .rule-global .rule-app { color: #60a5fa; }
-        .rule-delete { background: #dc2626; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; }
-        .rule-delete:hover { background: #b91c1c; }
-        .rule-priority { font-size: 10px; background: #f97316; color: white; padding: 2px 6px; border-radius: 3px; }
+        .default-action-select { background: var(--bg); border: 1px solid var(--border); color: var(--fg); padding: 4px 8px; font-family: inherit; cursor: pointer; }
+        .rule-global { border: 1px solid var(--border-strong); }
+        .rule-global .rule-app { color: var(--fg); }
+        .rule-delete { background: var(--bg); color: var(--fg); border: 1px solid var(--border); padding: 5px 10px; cursor: pointer; font-size: 12px; font-family: inherit; text-transform: uppercase; }
+        .rule-delete:hover { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+        .rule-priority { font-size: 10px; border: 1px solid currentColor; padding: 1px 6px; text-transform: uppercase; }
         .rule-prompt { cursor: help; font-size: 14px; }
-        .empty { color: #666; text-align: center; padding: 40px; }
+        .empty { color: var(--dim); text-align: center; padding: 40px; }
 
         /* Add rule form */
-        .add-rule-form { background: #2a2a2a; border-radius: 8px; padding: 16px; margin-bottom: 20px; }
-        .add-rule-form h3 { margin: 0 0 12px; font-size: 14px; }
+        .add-rule-form { border: 1px solid var(--border); padding: 16px; margin-bottom: 20px; }
+        .add-rule-form h3 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; font-weight: normal; color: var(--muted); }
         .form-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
-        .form-row input, .form-row select { background: #333; border: 1px solid #444; color: #e0e0e0; padding: 8px 12px; border-radius: 4px; font-size: 14px; }
+        .form-row input, .form-row select { background: var(--bg); border: 1px solid var(--border); color: var(--fg); padding: 8px 12px; font-family: inherit; font-size: 14px; }
         .form-row input { flex: 1; min-width: 150px; }
         .form-row select { min-width: 120px; }
-        .form-row button { background: #166534; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 14px; }
-        .form-row button:hover { background: #15803d; }
-        .form-error { color: #f87171; font-size: 12px; margin-top: 5px; }
+        .form-row button { background: var(--bg); color: var(--fg); border: 1px solid var(--border-strong); padding: 8px 16px; cursor: pointer; font-size: 14px; font-family: inherit; text-transform: uppercase; letter-spacing: 0.5px; }
+        .form-row button:hover { background: var(--fg); color: var(--bg); }
+        .form-error { color: var(--fg); font-weight: bold; font-size: 12px; margin-top: 5px; }
 
         @media (max-width: 768px) {
             .rule-item { padding: 12px; }
@@ -126,7 +129,7 @@ RULES_HTML = """
                 const appSelect = document.getElementById('new-app');
                 const currentApp = appSelect.value;
                 appSelect.innerHTML = '<option value="">Select app...</option>' +
-                    '<option value="__global__">⭐ Global (all apps)</option>' +
+                    '<option value="__global__">[GLOBAL] all apps</option>' +
                     apps.filter(a => a !== '__global__').map(a => `<option value="${a}">${a}</option>`).join('') +
                     '<option value="__other__">Other (custom)...</option>';
                 appSelect.value = currentApp;
@@ -161,7 +164,7 @@ RULES_HTML = """
 
             contentEl.innerHTML = filtered.map(r => {
                 const isGlobal = r.app === '__global__';
-                const appDisplay = isGlobal ? '⭐ Global' : esc(r.app);
+                const appDisplay = isGlobal ? '[GLOBAL]' : esc(r.app);
                 const itemClass = isGlobal ? 'rule-item rule-global' : 'rule-item';
 
                 if (r.type === 'default') {
@@ -181,7 +184,7 @@ RULES_HTML = """
                     <span class="rule-value">"${esc(r.value)}"</span>
                     <span class="rule-action ${r.action}">${r.action}</span>
                     ${r.priority ? `<span class="rule-priority">${r.priority}</span>` : ''}
-                    ${r.prompt ? `<span class="rule-prompt" title="${esc(r.prompt)}">📝</span>` : ''}
+                    ${r.prompt ? `<span class="rule-prompt" title="${esc(r.prompt)}">[i]</span>` : ''}
                     <button class="rule-delete">Delete</button>
                 </div>`;
             }).join('');

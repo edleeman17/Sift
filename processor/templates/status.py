@@ -7,65 +7,68 @@ STATUS_HTML = """
     <title>Status - Sift</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
+        :root {
+            --bg: #000; --fg: #fff; --muted: #999; --dim: #666; --border: #333; --border-strong: #fff;
+        }
         * { box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 0; padding: 20px; background: #1a1a1a; color: #e0e0e0; }
-        h1 { margin: 0 0 20px; font-size: 24px; display: flex; align-items: center; gap: 15px; }
-        a.back { color: #60a5fa; text-decoration: none; font-size: 14px; }
+        body { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; margin: 0; padding: 20px; background: var(--bg); color: var(--fg); }
+        h1 { margin: 0 0 20px; font-size: 22px; font-weight: normal; text-transform: uppercase; letter-spacing: 2px; display: flex; align-items: center; gap: 15px; border-bottom: 1px solid var(--border-strong); padding-bottom: 12px; }
+        a.back { color: var(--fg); text-decoration: none; font-size: 14px; text-transform: none; letter-spacing: normal; }
         a.back:hover { text-decoration: underline; }
         .status-grid { display: grid; gap: 12px; }
-        .service { background: #2a2a2a; border-radius: 8px; padding: 16px; }
+        .service { border: 1px solid var(--border); padding: 16px; }
         .service-header { display: flex; align-items: center; gap: 16px; }
-        .service-icon { width: 40px; height: 40px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
-        .service-icon.healthy { background: #166534; }
-        .service-icon.degraded { background: #854d0e; }
-        .service-icon.unhealthy { background: #991b1b; }
-        .service-icon.disabled { background: #374151; }
-        .service-icon.checking { background: #1e3a5f; animation: pulse 1s ease-in-out infinite; }
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .service-icon { width: 40px; height: 40px; border: 1px solid var(--border-strong); display: flex; align-items: center; justify-content: center; font-size: 11px; letter-spacing: 0.5px; flex-shrink: 0; }
+        .service-icon.healthy { background: var(--fg); color: var(--bg); }
+        .service-icon.degraded { border-style: dashed; }
+        .service-icon.unhealthy { animation: pulse 1s ease-in-out infinite; }
+        .service-icon.disabled { border-color: var(--border); color: var(--dim); }
+        .service-icon.checking { animation: pulse 1s ease-in-out infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
         .service-info { flex: 1; min-width: 0; }
         .service-name { font-weight: bold; font-size: 16px; margin-bottom: 2px; }
-        .service-detail { font-size: 13px; color: #9ca3af; }
-        .service-url { font-family: monospace; font-size: 11px; color: #6b7280; margin-top: 4px; word-break: break-all; }
-        .service-status { font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 4px; flex-shrink: 0; }
-        .service-status.healthy { background: #166534; color: white; }
-        .service-status.degraded { background: #854d0e; color: white; }
-        .service-status.unhealthy { background: #991b1b; color: white; }
-        .service-status.disabled { background: #374151; color: #9ca3af; }
-        .service-status.checking { background: #1e3a5f; color: #60a5fa; }
-        .service-checks { margin-top: 12px; padding-top: 12px; border-top: 1px solid #3a3a3a; display: grid; gap: 6px; }
+        .service-detail { font-size: 13px; color: var(--muted); }
+        .service-url { font-family: inherit; font-size: 11px; color: var(--dim); margin-top: 4px; word-break: break-all; }
+        .service-status { font-size: 11px; font-weight: bold; padding: 4px 10px; border: 1px solid currentColor; flex-shrink: 0; text-transform: uppercase; }
+        .service-status.healthy { background: var(--fg); color: var(--bg); }
+        .service-status.degraded { background: var(--bg); color: var(--fg); border-style: dashed; }
+        .service-status.unhealthy { background: var(--bg); color: var(--fg); animation: pulse 1s ease-in-out infinite; }
+        .service-status.disabled { background: var(--bg); color: var(--dim); border-color: var(--border); }
+        .service-status.checking { background: var(--bg); color: var(--fg); animation: pulse 1s ease-in-out infinite; }
+        .service-checks { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); display: grid; gap: 6px; }
         .check-item { display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
-        .check-label { color: #9ca3af; }
-        .check-value { font-family: monospace; }
-        .check-value.ok { color: #4ade80; }
-        .check-value.warn { color: #fbbf24; }
-        .check-value.error { color: #f87171; }
-        .check-value.info { color: #60a5fa; }
-        .service-response { font-family: monospace; font-size: 11px; background: #1a1a1a; padding: 8px; border-radius: 4px; margin-top: 10px; max-height: 80px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; color: #9ca3af; }
-        .service-response.error { color: #f87171; background: #1f1515; }
-        .section-title { font-size: 14px; text-transform: uppercase; color: #6b7280; margin: 24px 0 12px; letter-spacing: 0.5px; }
+        .check-label { color: var(--muted); }
+        .check-value { font-family: inherit; }
+        .check-value.ok::before { content: "✓ "; }
+        .check-value.warn::before { content: "! "; }
+        .check-value.error::before { content: "✗ "; font-weight: bold; }
+        .check-value.info::before { content: "› "; color: var(--muted); }
+        .service-response { font-family: inherit; font-size: 11px; border: 1px dashed var(--border); padding: 8px; margin-top: 10px; max-height: 80px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; color: var(--muted); }
+        .service-response.error { color: var(--fg); border-color: var(--fg); }
+        .section-title { font-size: 13px; text-transform: uppercase; color: var(--muted); margin: 24px 0 12px; letter-spacing: 1px; }
         .section-title:first-of-type { margin-top: 0; }
-        .refresh-btn { background: #3b82f6; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; margin-bottom: 20px; }
-        .refresh-btn:hover { background: #2563eb; }
-        .refresh-btn:disabled { background: #4b5563; cursor: not-allowed; }
-        .last-check { font-size: 12px; color: #6b7280; margin-left: 12px; }
-        .auto-refresh { font-size: 11px; color: #4b5563; margin-left: 8px; }
-        .logs-container { background: #2a2a2a; border-radius: 8px; padding: 12px; font-family: monospace; font-size: 12px; max-height: 300px; overflow-y: auto; }
-        .log-entry { padding: 4px 0; border-bottom: 1px solid #333; display: flex; gap: 10px; }
+        .refresh-btn { background: var(--bg); color: var(--fg); border: 1px solid var(--border-strong); padding: 8px 16px; cursor: pointer; font-size: 13px; font-family: inherit; margin-bottom: 20px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .refresh-btn:hover { background: var(--fg); color: var(--bg); }
+        .refresh-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .last-check { font-size: 12px; color: var(--muted); margin-left: 12px; }
+        .auto-refresh { font-size: 11px; color: var(--dim); margin-left: 8px; }
+        .logs-container { border: 1px solid var(--border); padding: 12px; font-family: inherit; font-size: 12px; max-height: 300px; overflow-y: auto; }
+        .log-entry { padding: 4px 0; border-bottom: 1px solid var(--border); display: flex; gap: 10px; }
         .log-entry:last-child { border-bottom: none; }
-        .log-time { color: #6b7280; flex-shrink: 0; }
-        .log-source { color: #60a5fa; flex-shrink: 0; min-width: 80px; }
-        .log-source.llm { color: #a78bfa; font-weight: bold; }
-        .log-message { color: #e0e0e0; word-break: break-word; }
-        .log-message.sent { color: #4ade80; }
-        .log-message.dropped { color: #f87171; }
-        .log-message.rate_limited { color: #fbbf24; }
-        .log-message.llm { color: #c4b5fd; }
-        .warnings-container { background: #451a03; border: 1px solid #854d0e; border-radius: 8px; padding: 12px; margin-bottom: 20px; }
-        .warning-item { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid #713f12; }
+        .log-time { color: var(--dim); flex-shrink: 0; }
+        .log-source { color: var(--muted); flex-shrink: 0; min-width: 80px; }
+        .log-source.llm { color: var(--fg); font-weight: bold; }
+        .log-message { color: var(--fg); word-break: break-word; }
+        .log-message.sent::before { content: "✓ "; }
+        .log-message.dropped::before { content: "✗ "; }
+        .log-message.rate_limited::before { content: "» "; }
+        .log-message.llm::before { content: "† "; }
+        .warnings-container { border: 1px solid var(--border-strong); padding: 12px; margin-bottom: 20px; }
+        .warning-item { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border); }
         .warning-item:last-child { border-bottom: none; }
-        .warning-icon { color: #fbbf24; font-size: 16px; }
-        .warning-sink { font-weight: bold; color: #fcd34d; min-width: 80px; }
-        .warning-message { color: #fef3c7; }
+        .warning-icon { color: var(--fg); font-size: 14px; font-weight: bold; }
+        .warning-sink { font-weight: bold; color: var(--fg); min-width: 80px; }
+        .warning-message { color: var(--muted); }
         .no-warnings { display: none; }
     </style>
 </head>
@@ -95,19 +98,19 @@ STATUS_HTML = """
 
     <script>
         const icons = {
-            processor: '⚙️',
-            database: '🗄️',
-            rules: '📋',
-            rate_limiter: '🚦',
-            sentiment: '🧠',
-            ollama: '🤖',
-            pi: '📡',
-            imessage: '💬',
-            sms_assistant: '📱',
-            bark: '🔔',
-            ntfy: '📢',
-            twilio: '📲',
-            console: '🖥️'
+            processor: 'PROC',
+            database: 'DB',
+            rules: 'RULE',
+            rate_limiter: 'RATE',
+            sentiment: 'SENT',
+            ollama: 'LLM',
+            pi: 'PI',
+            imessage: 'IMSG',
+            sms_assistant: 'SMS',
+            bark: 'BARK',
+            ntfy: 'NTFY',
+            twilio: 'TXT',
+            console: 'CLI'
         };
 
         function renderCheck(key, value) {
@@ -126,7 +129,7 @@ STATUS_HTML = """
         }
 
         function renderService(s) {
-            const icon = icons[s.id] || '❓';
+            const icon = icons[s.id] || '?';
             const statusClass = s.status.toLowerCase();
 
             // URL line (for external services)
@@ -186,7 +189,7 @@ STATUS_HTML = """
         function renderWarning(w) {
             return `
                 <div class="warning-item">
-                    <span class="warning-icon">⚠</span>
+                    <span class="warning-icon">!</span>
                     <span class="warning-sink">${w.sink}</span>
                     <span class="warning-message">${w.message}</span>
                 </div>
@@ -235,7 +238,7 @@ STATUS_HTML = """
                         </div>
                     `).join('');
                 } else {
-                    document.getElementById('logs').innerHTML = '<div style="color: #6b7280;">No recent activity</div>';
+                    document.getElementById('logs').innerHTML = '<div style="color: var(--muted);">No recent activity</div>';
                 }
 
                 document.getElementById('last-check').textContent =
