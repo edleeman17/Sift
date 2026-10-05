@@ -24,13 +24,16 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <WiFiManager.h>
+#include <esp_coexist.h>
 #include <time.h>
 
+#include <algorithm>
 #include <deque>
+#include <vector>
 
 #include "config.h"
 
-#define FW_VERSION "1.0.0"
+#define FW_VERSION "1.1.0"
 
 // --- Tunables (same values as the Pi bridge) ---------------------------------
 static const uint32_t STALE_THRESHOLD_S = 900;        // "degraded" after 15 min of silence
@@ -38,6 +41,7 @@ static const uint32_t DISCONNECT_REBOOT_S = 1800;     // reboot after 30 min wit
 static const uint32_t WIFI_DOWN_REBOOT_S = 300;       // reboot after 5 min without WiFi
 static const uint32_t KUMA_INTERVAL_MS = 60000;
 static const uint32_t ATTR_TIMEOUT_MS = 5000;         // wait for ANCS attribute response
+static const uint32_t REPLAY_WINDOW_MS = 3000;        // iOS replays existing notifications on (re)connect
 static const uint32_t LOOP_STALL_REBOOT_MS = 120000;  // software watchdog
 static const size_t LOG_LINES = 150;
 
@@ -78,7 +82,10 @@ struct Outgoing {
 static WebServer web(8081);
 static Preferences prefs;
 static NimBLEServer* bleServer = nullptr;
-static QueueHandle_t uidQueue;  // new notification UIDs from the BLE task
+static QueueHandle_t uidQueue;          // new notification UIDs from the BLE task
+static QueueHandle_t preExistingQueue;  // replayed on (re)connect, sorted out in resolveReplay()
+static std::vector<uint32_t> replayBurst;
+static uint32_t replayDeadlineMs = 0;
 static std::deque<String> logBuffer;
 static std::deque<Outgoing> outbox;
 
@@ -144,11 +151,9 @@ static void onNotificationSource(NimBLERemoteCharacteristic*, uint8_t* data, siz
   uint32_t uid = data[4] | (data[5] << 8) | (data[6] << 16) | ((uint32_t)data[7] << 24);
   lastActivityMs = millis();
   if (eventId != EVENT_ADDED) return;
-  if (flags & FLAG_PRE_EXISTING) {  // replayed on every reconnect - already seen
-    stats.skippedPreExisting++;
-    return;
-  }
-  xQueueSend(uidQueue, &uid, 0);
+  // iOS replays everything still on the phone after each (re)connect, flagged
+  // PreExisting - including anything that arrived while the link was down.
+  xQueueSend((flags & FLAG_PRE_EXISTING) ? preExistingQueue : uidQueue, &uid, 0);
 }
 
 static void onDataSource(NimBLERemoteCharacteristic*, uint8_t* data, size_t len, bool) {
@@ -191,6 +196,7 @@ class ServerCallbacks : public NimBLEServerCallbacks {
       NimBLEDevice::getServer()->disconnect(info.getConnHandle());
       return;
     }
+    connHandle = info.getConnHandle();
     peerAddress = String(info.getIdAddress().toString().c_str());
     needSetup = true;  // discovery must not run on the host task
   }
@@ -198,7 +204,11 @@ class ServerCallbacks : public NimBLEServerCallbacks {
 
 // --- ANCS: setup + attribute fetch (run from loop) ----------------------------
 static bool setupAncs() {
-  NimBLEClient* client = bleServer->getClient(connHandle);
+  NimBLEClient* client = nullptr;
+  for (int i = 0; i < 5 && !client && phoneConnected; i++) {
+    client = bleServer->getClient(connHandle);
+    if (!client) delay(200);
+  }
   if (!client) {
     logf("ANCS: no client for connection");
     return false;
@@ -269,8 +279,28 @@ static bool seenRecently(uint32_t uid) {
   return false;
 }
 
+// Decide which replayed notifications are genuinely new: anything with a UID
+// above the last one we handled arrived while the link was down. On the very
+// first connection we only record the high-water mark (no flood of old ones).
+static void resolveReplay() {
+  bool known = prefs.isKey("lastuid");
+  uint32_t last = prefs.getUInt("lastuid", 0), burstMax = 0;
+  std::sort(replayBurst.begin(), replayBurst.end());
+  size_t caughtUp = 0;
+  for (uint32_t uid : replayBurst) {
+    burstMax = max(burstMax, uid);
+    if (known && uid > last && xQueueSend(uidQueue, &uid, 0) == pdTRUE) caughtUp++;
+  }
+  stats.skippedPreExisting += replayBurst.size() - caughtUp;
+  if (!known || burstMax > last) prefs.putUInt("lastuid", max(last, burstMax));
+  logf("Reconnect replay: %u existing, %u new while disconnected", (unsigned)replayBurst.size(),
+       (unsigned)caughtUp);
+  replayBurst.clear();
+}
+
 static void fetchAndQueue(uint32_t uid) {
   if (!controlPoint || seenRecently(uid)) return;
+  prefs.putUInt("lastuid", uid);  // live UIDs can restart low after an iPhone reboot
 
   portENTER_CRITICAL(&dsLock);
   dsLen = 0;
@@ -472,6 +502,7 @@ static void handleForward() {
 // --- Setup ---------------------------------------------------------------------
 static void startBle() {
   NimBLEDevice::init(BLE_NAME);
+  esp_coex_preference_set(ESP_COEX_PREFER_BT);  // one radio: favour the BLE link over WiFi
   NimBLEDevice::setMTU(517);
   NimBLEDevice::setSecurityAuth(true, false, true);  // bond, no MITM (no screen), secure conn
   NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
@@ -527,6 +558,7 @@ void setup() {
   Serial.begin(115200);
   if (esp_reset_reason() == ESP_RST_POWERON) rebootsForDisconnect = 0;
   uidQueue = xQueueCreate(32, sizeof(uint32_t));
+  preExistingQueue = xQueueCreate(64, sizeof(uint32_t));
   prefs.begin("sift-ancs", false);
   forwardEnabled = prefs.getBool("forward", false);
 
@@ -557,13 +589,26 @@ void loop() {
 
   if (needSetup) {
     needSetup = false;
-    ancsReady = setupAncs();
-    if (!ancsReady) bleServer->disconnect(connHandle);  // iOS reconnects and we retry
+    ancsReady = phoneConnected && setupAncs();
+    if (ancsReady) {
+      // iOS defaults to a ~0.7s supervision timeout, too tight while WiFi shares
+      // the radio. Ask for 30-60ms interval, 5s timeout (within Apple's limits).
+      bleServer->updateConnParams(connHandle, 24, 48, 0, 500);
+      replayBurst.clear();
+      replayDeadlineMs = millis() + REPLAY_WINDOW_MS;
+    } else if (phoneConnected) {
+      bleServer->disconnect(connHandle);  // iOS reconnects and we retry
+    }
     lastActivityMs = millis();
   }
 
   uint32_t uid;
-  if (ancsReady && xQueueReceive(uidQueue, &uid, 0) == pdTRUE) fetchAndQueue(uid);
+  while (xQueueReceive(preExistingQueue, &uid, 0) == pdTRUE) replayBurst.push_back(uid);
+  if (replayDeadlineMs && millis() > replayDeadlineMs) {
+    replayDeadlineMs = 0;
+    resolveReplay();
+  }
+  if (ancsReady && !replayDeadlineMs && xQueueReceive(uidQueue, &uid, 0) == pdTRUE) fetchAndQueue(uid);
 
   processOutbox();
   kumaHeartbeat();

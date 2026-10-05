@@ -19,6 +19,9 @@ log = logging.getLogger(__name__)
 PI_HOST = os.getenv("PI_HOST", "ed@eink.lan")
 PI_HEALTH_URL = os.getenv("PI_HEALTH_URL", "http://eink.lan:8081/health")
 SSH_KEY_PATH = os.getenv("SSH_KEY_PATH", "/app/secrets/eink_ssh_key")
+# ESP32 bridge (esp32-bridge/): RESET is a plain HTTP POST that reboots it.
+# Unset = legacy Pi bridge, reset over SSH.
+BRIDGE_RESET_URL = os.getenv("BRIDGE_RESET_URL", "")
 
 # Emergency mode state file - shared with sift-processor via volume mount
 # (see routes/notification.py's EMERGENCY_FILE, same path)
@@ -57,7 +60,19 @@ async def handle_ping(args: str = "") -> str:
 
 @register_command("RESET")
 async def handle_reset(args: str = "") -> str:
-    """Reset Bluetooth stack on the Pi remotely."""
+    """Reset the notification bridge (reboot the ESP32, or the Pi's BT stack)."""
+    if BRIDGE_RESET_URL:
+        log.info(f"Rebooting bridge via {BRIDGE_RESET_URL}")
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(BRIDGE_RESET_URL)
+            if resp.status_code == 200:
+                return "Bridge rebooting. iPhone reconnects in about a minute."
+            return f"Reset failed: HTTP {resp.status_code}"
+        except Exception as e:
+            log.error(f"Bridge reset error: {e}")
+            return f"Reset error: {str(e)[:100]}"
+
     log.info(f"Executing remote reset on {PI_HOST}")
 
     reset_commands = """
