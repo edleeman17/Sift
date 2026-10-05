@@ -535,6 +535,12 @@ make pull-model  # Pull Ollama model
 Released as git tags, not by rewriting these docs in place - check out an
 older tag if you want the docs as they were for that version.
 
+- **v2.1.1** — ESP32 bridge link fix. The iPhone link kept dropping and iOS
+  eventually stopped reconnecting, because a classic ESP32 shares one radio
+  between WiFi and Bluetooth. WiFi now runs in max modem sleep (0 drops in a
+  15-minute test, down from one every few seconds). Also: the 5 s link timeout
+  is requested on connect, the dashboard shows the iPhone's Bluetooth signal
+  next to "iPhone Connected", and there's a `POST /bletest` WiFi-off diagnostic.
 - **v2.1.0** — No Pi required. Added `esp32-bridge/`: firmware that turns a
   ~£5 classic ESP32 into the Bluetooth bridge, as an alternative to the
   Pi. Same HTTP contract, same notification rules and watchdogs as
