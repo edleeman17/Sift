@@ -61,7 +61,7 @@ After a long absence (you were out of the house), iOS can stop reconnecting by i
    ```
 
 3. Set up WiFi. On first boot the board opens a hotspot (`SETUP_AP_NAME` / `SETUP_AP_PASSWORD`). Join it from a phone, pick your network and save. The board then uses the fixed IP from `config.h`.
-4. Pair. On the iPhone, go to **Settings → Bluetooth → Other Devices → Sift ANCS**, then tap **Pair** and **Allow** notifications.
+4. Pair. iOS doesn't list Bluetooth LE devices in Settings until they've been paired once, so do the first pairing from a BLE app such as **nRF Connect** (free): **Scan → Sift ANCS → Connect**, then tap **Pair** and **Allow** notifications. After that it appears in Settings → Bluetooth and iOS reconnects to it by itself.
 5. Test with forwarding off. Watch `curl http://<ip>:8081/logs` for `Dry run (forwarding off): ...` lines.
 6. Cut over:
    - Stop the old bridge.
