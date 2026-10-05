@@ -37,10 +37,12 @@ async def dashboard():
     if pi_health.get("phone_connected") is True:
         connection_class = "connected"
         battery = pi_health.get("battery")
+        rssi = pi_health.get("phone_rssi")  # ESP32 bridge only; the Pi doesn't report it
+        connection_status = "iPhone Connected"
         if battery is not None:
-            connection_status = f"iPhone Connected • {battery}%"
-        else:
-            connection_status = "iPhone Connected"
+            connection_status += f" • {battery}%"
+        if rssi:
+            connection_status += f" • {rssi} dBm"
         if last_notif_ago:
             connection_detail = f"Last notification: {last_notif_ago}"
             if iphone_info:

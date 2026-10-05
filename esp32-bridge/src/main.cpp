@@ -33,7 +33,7 @@
 
 #include "config.h"
 
-#define FW_VERSION "1.4.0"
+#define FW_VERSION "1.4.1"
 
 // --- Tunables (same values as the Pi bridge) ---------------------------------
 static const uint32_t STALE_THRESHOLD_S = 900;        // "degraded" after 15 min of silence
@@ -443,6 +443,8 @@ static void addCommon(JsonDocument& doc) {
   doc["active_iphone"] = peerAddress.length() ? peerAddress : (const char*)nullptr;
   doc["configured_iphone"] = (const char*)nullptr;
   if (battery >= 0) doc["battery"] = (int)battery; else doc["battery"] = nullptr;
+  // iPhone link signal (dBm, polled every 10 s) - shown on the Sift dashboard
+  if (ancsReady && lastRssi) doc["phone_rssi"] = (int)lastRssi; else doc["phone_rssi"] = nullptr;
   JsonObject w = doc["watchdog_stats"].to<JsonObject>();
   w["forwarded"] = stats.forwarded;
   w["dry_run_skipped"] = stats.dryRun;
@@ -506,7 +508,6 @@ static void handleStatus() {
   doc["advertising_active"] = NimBLEDevice::getAdvertising()->isAdvertising();
   doc["bonded_devices"] = NimBLEDevice::getNumBonds();
   doc["wifi_rssi"] = WiFi.RSSI();
-  doc["phone_rssi"] = (int)lastRssi;
   doc["free_heap"] = ESP.getFreeHeap();
   doc["min_free_heap"] = ESP.getMinFreeHeap();
   doc["outbox"] = outbox.size();
