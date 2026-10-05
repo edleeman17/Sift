@@ -36,7 +36,7 @@ Sift bridges the gap by capturing every notification from your iPhone via Blueto
 ```
 📱 iPhone (at home)
     ↓ Bluetooth
-🍓 Raspberry Pi
+🍓 Raspberry Pi  or  🔌 ESP32 (the bridge)
     ↓ HTTP
 💻 Processor (filters notifications)
     ↓
@@ -103,8 +103,8 @@ Dashboard: **http://localhost:8090**
 │                         YOUR HOME                                   │
 │                                                                     │
 │   ┌──────────┐    Bluetooth    ┌──────────────┐                    │
-│   │  iPhone  │ ──────────────► │ Raspberry Pi │                    │
-│   │ (drawer) │                 │ (ancs-bridge)│                    │
+│   │  iPhone  │ ──────────────► │ Pi or ESP32  │                    │
+│   │ (drawer) │                 │ (ANCS bridge)│                    │
 │   └──────────┘                 └──────┬───────┘                    │
 │                                       │ HTTP                        │
 │                                       ▼                             │
@@ -124,7 +124,7 @@ Dashboard: **http://localhost:8090**
 ### Notification Flow
 
 1. **Capture** — iPhone notification triggers Bluetooth event
-2. **Forward** — Raspberry Pi sends to processor via HTTP
+2. **Forward** — the bridge (Pi or ESP32) sends it to the processor via HTTP
 3. **Filter** — Rules engine evaluates: send, drop, or ask AI
 4. **Deliver** — Approved notifications go to your configured sinks
 
@@ -132,7 +132,7 @@ Dashboard: **http://localhost:8090**
 
 **Outbound (notifications to you):**
 ```
-iPhone → Pi (BLE) → Processor → iMessage Gateway → SMS → Dumbphone
+iPhone → Pi or ESP32 (BLE) → Processor → Delivery Gateway → SMS → Dumbphone
 ```
 
 **Inbound (commands from you):**
@@ -154,13 +154,28 @@ the only thing that has to stay reachable.
 
 | Component | Purpose | Recommendation |
 |-----------|---------|----------------|
-| Raspberry Pi | Bluetooth bridge | Zero 2 W, Pi 3/4/5 |
+| Bluetooth bridge | Listens for iPhone notifications | **Either** a Raspberry Pi (Zero 2 W, Pi 3/4/5) **or** a classic ESP32 dev board (ESP32-WROOM-32, ~£5) - see below |
 | iPhone | Notification source | Stays at home |
 | Dumbphone | Your daily carry | Nokia 8210 4G |
 
 A **Mac** is optional as of v2 - only needed if you choose the original
 `imessage-gateway/` (AppleScript-driven) delivery path instead of the
 Mac-free `smtp-gateway/` one. See [Delivery Gateway](#3-delivery-gateway--send-sms-to-your-dumbphone).
+
+### Pi or ESP32?
+
+Both bridges do the same job and send the processor exactly the same thing, so the rest of Sift doesn't care which one you pick.
+
+| | Raspberry Pi (`docs/ancs-bridge-setup.md`) | ESP32 (`esp32-bridge/`) |
+|---|---|---|
+| Cost | Pi + SD card + PSU | ~£5 board + any USB charger |
+| Software | Linux, BlueZ, ancs4linux, 3 services + watchdog | One firmware, updates over WiFi |
+| Power cuts | Can corrupt the SD card | Doesn't care, boots in under a second |
+| First pairing | Settings → Bluetooth | Once via the nRF Connect app (BLE-only devices don't show in Settings until paired) |
+| `RESET` | Restarts the Bluetooth stack over SSH | Reboots the board over HTTP |
+| Also runs other stuff | Yes - it's a Linux box | No - it does this one job |
+
+Pick the **ESP32** if all you need is the bridge. Pick the **Pi** if you already have one, or want the same box to do other things too.
 
 ### Software
 
@@ -171,11 +186,14 @@ Mac-free `smtp-gateway/` one. See [Delivery Gateway](#3-delivery-gateway--send-s
 
 ## Installation
 
-### 1. Raspberry Pi — Bluetooth Bridge
+### 1. Bluetooth Bridge — Pi or ESP32
 
-Set up the Pi to capture notifications from your iPhone via Bluetooth.
+Set up **one** of these to capture notifications from your iPhone via Bluetooth:
 
-→ **[docs/ancs-bridge-setup.md](docs/ancs-bridge-setup.md)**
+- **ESP32** → **[esp32-bridge/README.md](esp32-bridge/README.md)** - flash, join WiFi via its setup hotspot, pair once with nRF Connect
+- **Raspberry Pi** → **[docs/ancs-bridge-setup.md](docs/ancs-bridge-setup.md)**
+
+Swapping from the Pi to an ESP32 later? The ESP32 starts with forwarding off, so you can run both side by side and check its `/logs` before turning the Pi off.
 
 ### 2. Processor — Filtering Engine
 
@@ -322,8 +340,8 @@ you want that back.
 
 | Command | Example | Response |
 |---------|---------|----------|
-| `PING` | `PING` | Pi + iPhone status, battery % |
-| `RESET` | `RESET` | Restart the Pi's Bluetooth stack over SSH |
+| `PING` | `PING` | Bridge + iPhone status, battery % |
+| `RESET` | `RESET` | Restart the bridge (reboots the ESP32, or restarts the Pi's Bluetooth stack over SSH) |
 | `EMERGENCY` | `EMERGENCY ON` | Toggle emergency mode |
 | `WEATHER` | `WEATHER` | Current conditions + forecast |
 | `WEATHER [place]` | `WEATHER paris` | Weather for any location |
@@ -374,9 +392,12 @@ cd sms-assistant
 pip install -r requirements.txt
 
 export GATEWAY_URL="http://localhost:8095"       # your delivery gateway from step 3
-export PI_HOST="pi@192.168.1.100"                # for RESET, over SSH
-export SSH_KEY_PATH="/path/to/key"               # RESET's SSH key
-export PI_HEALTH_URL="http://192.168.1.100:8081/health"  # for PING
+export PI_HEALTH_URL="http://192.168.1.100:8081/health"  # your bridge (Pi or ESP32), for PING
+# RESET - ESP32 bridge:
+export BRIDGE_RESET_URL="http://192.168.1.100:8081/reset"
+# RESET - Pi bridge (leave BRIDGE_RESET_URL unset):
+export PI_HOST="pi@192.168.1.100"
+export SSH_KEY_PATH="/path/to/key"
 export INGEST_URL=""                             # optional: a REST todo backend for TODO/DONE
 export DEFAULT_LAT="51.5074"
 export DEFAULT_LON="-0.1278"
@@ -391,9 +412,10 @@ filtered to your dumbphone's number, Run Immediately, Ask Before Running
 off) at `POST http://<host>:8091/incoming` with body
 `{"text": "<Shortcut Input>"}`.
 
-`RESET` needs `ssh` on the container - if you're building your own image
-instead of using the provided `Dockerfile`, make sure your base image has
-an SSH client installed.
+With a Pi bridge, `RESET` needs `ssh` on the container - if you're building
+your own image instead of using the provided `Dockerfile`, make sure your
+base image has an SSH client installed. With an ESP32 bridge it's a plain
+HTTP POST.
 
 ---
 
@@ -513,6 +535,12 @@ make pull-model  # Pull Ollama model
 Released as git tags, not by rewriting these docs in place - check out an
 older tag if you want the docs as they were for that version.
 
+- **v2.1.0** — No Pi required. Added `esp32-bridge/`: firmware that turns a
+  ~£5 classic ESP32 into the Bluetooth bridge, as an alternative to the
+  Pi. Same HTTP contract, same notification rules and watchdogs as
+  ancs4linux + ancs-bridge. `RESET` can reboot it over HTTP
+  (`BRIDGE_RESET_URL`). Also a redesigned, minimal dashboard; the AI
+  analysis feature was removed.
 - **v2.0.0** — No Mac required. Added `smtp-gateway/` as a Mac-free
   alternative to `imessage-gateway/` (email + an iOS Shortcut instead of
   AppleScript). Rewrote `sms-assistant/` to be event-driven over HTTP
@@ -548,7 +576,8 @@ MIT
 ## Acknowledgments
 
 - [Ben Vallack](https://github.com/benvallack) — Inspiration for the dumbphone experiment
-- [ancs4linux](https://github.com/pzmarzly/ancs4linux) — ANCS Bluetooth implementation
+- [ancs4linux](https://github.com/pzmarzly/ancs4linux) — ANCS Bluetooth implementation (Pi bridge)
+- [NimBLE-Arduino](https://github.com/h2zero/NimBLE-Arduino) — Bluetooth LE stack (ESP32 bridge)
 - [Bark](https://github.com/Finb/Bark) — iOS push notifications
 - [ntfy](https://ntfy.sh) — Push notification service
 - [Ollama](https://ollama.ai) — Local LLM runtime
