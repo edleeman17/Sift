@@ -33,7 +33,7 @@
 
 #include "config.h"
 
-#define FW_VERSION "1.1.0"
+#define FW_VERSION "1.2.0"
 
 // --- Tunables (same values as the Pi bridge) ---------------------------------
 static const uint32_t STALE_THRESHOLD_S = 900;        // "degraded" after 15 min of silence
@@ -42,6 +42,8 @@ static const uint32_t WIFI_DOWN_REBOOT_S = 300;       // reboot after 5 min with
 static const uint32_t KUMA_INTERVAL_MS = 60000;
 static const uint32_t ATTR_TIMEOUT_MS = 5000;         // wait for ANCS attribute response
 static const uint32_t REPLAY_WINDOW_MS = 3000;        // iOS replays existing notifications on (re)connect
+static const uint32_t RECONNECT_GRACE_S = 120;        // /health stays green through short link drops
+static const uint32_t FAST_ADV_MS = 30000;            // Apple: advertise at 20 ms for 30 s, then slower
 static const uint32_t LOOP_STALL_REBOOT_MS = 120000;  // software watchdog
 static const size_t LOG_LINES = 150;
 
@@ -103,6 +105,11 @@ static String peerAddress;
 static NimBLERemoteCharacteristic* controlPoint = nullptr;
 
 static uint32_t lastActivityMs = 0;
+static uint32_t lastReadyMs = 0;     // last time ANCS was up (0 = never this boot)
+static uint32_t fastAdvUntilMs = 0;
+static volatile int lastRssi = 0;
+static uint32_t lastRssiPollMs = 0;
+static SemaphoreHandle_t logLock;
 static uint32_t lastConnectedMs = 0;
 static uint32_t wifiDownSinceMs = 0;
 static uint32_t lastKumaMs = 0;
@@ -138,8 +145,21 @@ static void logf(const char* fmt, ...) {
   String ts = nowIso();
   String line = (ts.length() ? ts : String("+") + String(millis() / 1000) + "s") + " " + msg;
   Serial.println(line);
+  xSemaphoreTake(logLock, portMAX_DELAY);  // called from both the loop and the BLE task
   logBuffer.push_back(line);
   while (logBuffer.size() > LOG_LINES) logBuffer.pop_front();
+  xSemaphoreGive(logLock);
+}
+
+// Fast advertising right after boot/disconnect gets iOS to reconnect in seconds
+// rather than ~35s; after 30s drop to Apple's 152.5-211.25 ms to save power.
+static void startAdvertising(bool fast) {
+  NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
+  if (adv->isAdvertising()) adv->stop();
+  adv->setMinInterval(fast ? 32 : 244);  // units of 0.625 ms
+  adv->setMaxInterval(fast ? 48 : 338);
+  adv->start();
+  fastAdvUntilMs = fast ? millis() + FAST_ADV_MS : 0;
 }
 
 static uint32_t secondsSince(uint32_t ms) { return (millis() - ms) / 1000; }
@@ -186,8 +206,13 @@ class ServerCallbacks : public NimBLEServerCallbacks {
     connHandle = BLE_HS_CONN_HANDLE_NONE;
     lastConnectedMs = millis();
     stats.disconnects++;
-    logf("BLE disconnected (reason 0x%x)", reason);
-    NimBLEDevice::startAdvertising();
+    logf("BLE disconnected (reason 0x%x, last RSSI %d dBm)", reason, (int)lastRssi);
+    startAdvertising(true);
+  }
+
+  void onConnParamsUpdate(NimBLEConnInfo& info) override {
+    logf("BLE conn params: interval %.1f ms, latency %u, timeout %u ms",
+         info.getConnInterval() * 1.25f, info.getConnLatency(), info.getConnTimeout() * 10);
   }
 
   void onAuthenticationComplete(NimBLEConnInfo& info) override {
@@ -433,7 +458,10 @@ static void sendJson(int code, JsonDocument& doc) {
 static void handleHealth() {
   JsonDocument doc;
   uint32_t idle = secondsSince(lastActivityMs);
-  if (!ancsReady) {
+  // A short drop isn't an outage: iOS reconnects and the replay catch-up
+  // delivers anything sent meanwhile. Only report down after RECONNECT_GRACE_S.
+  bool inGrace = !ancsReady && lastReadyMs && secondsSince(lastReadyMs) < RECONNECT_GRACE_S;
+  if (!ancsReady && !inGrace) {
     doc["status"] = "unhealthy";
     doc["phone_connected"] = false;
     doc["reason"] = phoneConnected ? "iPhone connected but ANCS not set up (pairing?)"
@@ -444,6 +472,7 @@ static void handleHealth() {
   }
   doc["status"] = idle > STALE_THRESHOLD_S ? "degraded" : "healthy";
   doc["phone_connected"] = true;
+  doc["link"] = ancsReady ? "up" : "reconnecting";
   if (idle > STALE_THRESHOLD_S) doc["reason"] = "BLE connected but no notifications received";
   doc["last_activity_ago"] = idle;
   addCommon(doc);
@@ -468,6 +497,7 @@ static void handleStatus() {
   doc["advertising_active"] = NimBLEDevice::getAdvertising()->isAdvertising();
   doc["bonded_devices"] = NimBLEDevice::getNumBonds();
   doc["wifi_rssi"] = WiFi.RSSI();
+  doc["phone_rssi"] = (int)lastRssi;
   doc["free_heap"] = ESP.getFreeHeap();
   doc["min_free_heap"] = ESP.getMinFreeHeap();
   doc["outbox"] = outbox.size();
@@ -524,7 +554,7 @@ static void startBle() {
   advertising->setAdvertisementData(adv);
   advertising->setScanResponseData(scan);
   advertising->enableScanResponse(true);
-  NimBLEDevice::startAdvertising();
+  startAdvertising(true);
   logf("BLE advertising as '%s' (%d bonded device(s))", BLE_NAME, NimBLEDevice::getNumBonds());
 }
 
@@ -557,6 +587,7 @@ static void softwareWatchdog(void*) {
 void setup() {
   Serial.begin(115200);
   if (esp_reset_reason() == ESP_RST_POWERON) rebootsForDisconnect = 0;
+  logLock = xSemaphoreCreateMutex();
   uidQueue = xQueueCreate(32, sizeof(uint32_t));
   preExistingQueue = xQueueCreate(64, sizeof(uint32_t));
   prefs.begin("sift-ancs", false);
@@ -626,8 +657,18 @@ void loop() {
   } else {
     wifiDownSinceMs = 0;
   }
-  if (!phoneConnected && !NimBLEDevice::getAdvertising()->isAdvertising())
-    NimBLEDevice::startAdvertising();
+  if (!phoneConnected) {
+    if (!NimBLEDevice::getAdvertising()->isAdvertising()) startAdvertising(true);
+    else if (fastAdvUntilMs && millis() > fastAdvUntilMs) startAdvertising(false);
+  }
+  if (ancsReady) {
+    lastReadyMs = millis();
+    if (millis() - lastRssiPollMs > 10000) {
+      lastRssiPollMs = millis();
+      int8_t rssi;
+      if (ble_gap_conn_rssi(connHandle, &rssi) == 0) lastRssi = rssi;
+    }
+  }
 
   delay(5);
 }
