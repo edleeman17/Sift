@@ -20,7 +20,31 @@ Any **classic ESP32** board (ESP32-WROOM-32 / DevKitC style, 4 MB flash). Tested
 | `POST :8081/forward?on=1` | Turn forwarding on or off (saved across reboots). **Off by default**, so a new board can run next to the old bridge without double-sending |
 | Uptime Kuma | Push heartbeat every 60 s while the iPhone is connected |
 
-It heals itself without help. After 30 minutes without the iPhone, or 5 minutes without WiFi, it reboots. A software watchdog reboots it if the main loop stalls.
+Notification handling follows the Pi version exactly:
+
+- Like ancs4linux, it forwards new notifications and modified ones. It ignores the ones iOS replays on every reconnect (flagged PreExisting).
+- Like ancs-bridge, it skips any notification ID it has already handled in the last hour. That list is saved, so it survives reboots.
+
+The Pi's three watchdogs are ported over:
+
+| Pi | ESP32 |
+|---|---|
+| Restart the observer after 15 min of silence | Re-subscribe to ANCS |
+| Refresh advertising every 5 min while disconnected | Same, at Apple's fast 20 ms rate for 30 s |
+| Restart the Bluetooth stack after 30 min disconnected | Reboot |
+
+It also reboots after 5 minutes without WiFi, or if the main loop stalls.
+
+### iPhone link
+
+With Bluetooth LE, only the iPhone can start a connection, so after a drop the bridge advertises and waits. Two settings keep the link steady on a board where WiFi and Bluetooth share one radio:
+
+- It asks iOS for a 5 s link timeout (60 ms interval). The iOS default of ~0.7 s caused drops every 10–40 s.
+- It re-advertises fast after a drop. iOS usually reconnects within 2–7 s.
+
+After a long absence (you were out of the house), iOS can stop reconnecting by itself. In that case tap **Sift ANCS** in Settings → Bluetooth.
+
+`/health` stays 200 (`"link": "reconnecting"`) through drops shorter than 2 minutes.
 
 ## Setup
 

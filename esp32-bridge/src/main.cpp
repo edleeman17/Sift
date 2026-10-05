@@ -33,7 +33,7 @@
 
 #include "config.h"
 
-#define FW_VERSION "1.2.0"
+#define FW_VERSION "1.4.0"
 
 // --- Tunables (same values as the Pi bridge) ---------------------------------
 static const uint32_t STALE_THRESHOLD_S = 900;        // "degraded" after 15 min of silence
@@ -41,7 +41,9 @@ static const uint32_t DISCONNECT_REBOOT_S = 1800;     // reboot after 30 min wit
 static const uint32_t WIFI_DOWN_REBOOT_S = 300;       // reboot after 5 min without WiFi
 static const uint32_t KUMA_INTERVAL_MS = 60000;
 static const uint32_t ATTR_TIMEOUT_MS = 5000;         // wait for ANCS attribute response
-static const uint32_t REPLAY_WINDOW_MS = 3000;        // iOS replays existing notifications on (re)connect
+static const uint32_t DEDUP_WINDOW_S = 3600;          // skip a notification UID seen in the last hour
+static const size_t SEEN_SLOTS = 64;                  // persisted (uid, time) pairs for that check
+static const uint32_t ADV_REFRESH_MS = 300000;        // restart advertising every 5 min while disconnected
 static const uint32_t RECONNECT_GRACE_S = 120;        // /health stays green through short link drops
 static const uint32_t FAST_ADV_MS = 30000;            // Apple: advertise at 20 ms for 30 s, then slower
 static const uint32_t LOOP_STALL_REBOOT_MS = 120000;  // software watchdog
@@ -58,6 +60,7 @@ static const NimBLEUUID BATTERY_LEVEL((uint16_t)0x2A19);
 enum : uint8_t { EVENT_ADDED = 0, EVENT_MODIFIED = 1, EVENT_REMOVED = 2 };
 enum : uint8_t { FLAG_SILENT = 1, FLAG_IMPORTANT = 2, FLAG_PRE_EXISTING = 4 };
 enum : uint8_t { ATTR_APP_ID = 0, ATTR_TITLE = 1, ATTR_SUBTITLE = 2, ATTR_MESSAGE = 3 };
+static const int N_ATTRS = 4;
 static const uint16_t MAX_TITLE = 64, MAX_SUBTITLE = 64, MAX_MESSAGE = 512;
 
 // Apps to ignore (push service echoes) and friendly names - copied from the Pi bridge.
@@ -84,10 +87,7 @@ struct Outgoing {
 static WebServer web(8081);
 static Preferences prefs;
 static NimBLEServer* bleServer = nullptr;
-static QueueHandle_t uidQueue;          // new notification UIDs from the BLE task
-static QueueHandle_t preExistingQueue;  // replayed on (re)connect, sorted out in resolveReplay()
-static std::vector<uint32_t> replayBurst;
-static uint32_t replayDeadlineMs = 0;
+static QueueHandle_t uidQueue;  // notifications to fetch, from the BLE task
 static std::deque<String> logBuffer;
 static std::deque<Outgoing> outbox;
 
@@ -115,12 +115,18 @@ static uint32_t wifiDownSinceMs = 0;
 static uint32_t lastKumaMs = 0;
 static volatile uint32_t loopTickMs = 0;
 
-static uint32_t recentUids[32];
-static size_t recentUidPos = 0;
+// Same dedup as the Pi's ancs-bridge: notification UID -> when we last saw it,
+// persisted so a reboot doesn't re-send what iOS replays on reconnect.
+struct Seen {
+  uint32_t uid, at;
+};
+static Seen seen[SEEN_SLOTS];
+static uint8_t seenPos = 0;
+static uint32_t lastAdvRefreshMs = 0;
 
 static struct {
-  uint32_t forwarded = 0, dryRun = 0, postFailures = 0, skippedPreExisting = 0,
-           attrTimeouts = 0, connects = 0, disconnects = 0;
+  uint32_t forwarded = 0, dryRun = 0, postFailures = 0, skippedDuplicate = 0,
+           attrTimeouts = 0, connects = 0, disconnects = 0, resubscribes = 0;
 } stats;
 
 RTC_NOINIT_ATTR uint32_t rebootsForDisconnect;  // survives soft reboots
@@ -170,10 +176,10 @@ static void onNotificationSource(NimBLERemoteCharacteristic*, uint8_t* data, siz
   uint8_t eventId = data[0], flags = data[1];
   uint32_t uid = data[4] | (data[5] << 8) | (data[6] << 16) | ((uint32_t)data[7] << 24);
   lastActivityMs = millis();
-  if (eventId != EVENT_ADDED) return;
-  // iOS replays everything still on the phone after each (re)connect, flagged
-  // PreExisting - including anything that arrived while the link was down.
-  xQueueSend((flags & FLAG_PRE_EXISTING) ? preExistingQueue : uidQueue, &uid, 0);
+  // Same rule as ancs4linux: new notifications (not ones replayed on connect)
+  // and modified ones.
+  bool fresh = eventId == EVENT_ADDED && !(flags & FLAG_PRE_EXISTING);
+  if (fresh || eventId == EVENT_MODIFIED) xQueueSend(uidQueue, &uid, 0);
 }
 
 static void onDataSource(NimBLERemoteCharacteristic*, uint8_t* data, size_t len, bool) {
@@ -188,8 +194,24 @@ static void onBattery(NimBLERemoteCharacteristic*, uint8_t* data, size_t len, bo
   if (len >= 1) battery = data[0];
 }
 
+static void linkDown(int reason) {
+  phoneConnected = false;
+  needSetup = false;
+  ancsReady = false;
+  controlPoint = nullptr;
+  connHandle = BLE_HS_CONN_HANDLE_NONE;
+  lastConnectedMs = millis();
+  stats.disconnects++;
+  logf("BLE disconnected (reason 0x%x, last RSSI %d dBm)", reason, (int)lastRssi);
+  startAdvertising(true);
+}
+
 class ServerCallbacks : public NimBLEServerCallbacks {
-  void onConnect(NimBLEServer*, NimBLEConnInfo& info) override {
+  void onConnect(NimBLEServer* server, NimBLEConnInfo& info) override {
+    if (phoneConnected) {  // a second link to the same phone - keep the first
+      server->disconnect(info.getConnHandle());
+      return;
+    }
     phoneConnected = true;
     connHandle = info.getConnHandle();
     lastConnectedMs = millis();
@@ -198,16 +220,9 @@ class ServerCallbacks : public NimBLEServerCallbacks {
     NimBLEDevice::startSecurity(info.getConnHandle());
   }
 
-  void onDisconnect(NimBLEServer*, NimBLEConnInfo&, int reason) override {
-    phoneConnected = false;
-    needSetup = false;
-    ancsReady = false;
-    controlPoint = nullptr;
-    connHandle = BLE_HS_CONN_HANDLE_NONE;
-    lastConnectedMs = millis();
-    stats.disconnects++;
-    logf("BLE disconnected (reason 0x%x, last RSSI %d dBm)", reason, (int)lastRssi);
-    startAdvertising(true);
+  void onDisconnect(NimBLEServer*, NimBLEConnInfo& info, int reason) override {
+    if (info.getConnHandle() != connHandle) return;  // not our active link
+    linkDown(reason);
   }
 
   void onConnParamsUpdate(NimBLEConnInfo& info) override {
@@ -277,16 +292,16 @@ static String normalizeApp(const String& appId) {
 
 // Parses [cmd][uid x4] then (attrId, len16, value) x4. Returns false until the
 // whole response has arrived (it can span several BLE notifications).
-static bool parseAttributes(const uint8_t* buf, size_t len, String out[4]) {
+static bool parseAttributes(const uint8_t* buf, size_t len, String out[N_ATTRS]) {
   if (len < 5) return false;
   size_t pos = 5;
-  for (int i = 0; i < 4; i++) {
+  for (int i = 0; i < N_ATTRS; i++) {
     if (pos + 3 > len) return false;
     uint8_t id = buf[pos];
     uint16_t alen = buf[pos + 1] | (buf[pos + 2] << 8);
     pos += 3;
     if (pos + alen > len) return false;
-    if (id < 4) {
+    if (id < N_ATTRS) {
       String v;
       v.reserve(alen);
       for (uint16_t j = 0; j < alen; j++) v += (char)buf[pos + j];
@@ -297,35 +312,27 @@ static bool parseAttributes(const uint8_t* buf, size_t len, String out[4]) {
   return true;
 }
 
+static uint32_t nowUnix() { return (uint32_t)time(nullptr); }
+
 static bool seenRecently(uint32_t uid) {
-  for (uint32_t u : recentUids)
-    if (u == uid && uid != 0) return true;
-  recentUids[recentUidPos++ % 32] = uid;
+  for (auto& s : seen)
+    if (s.uid == uid && uid != 0) return nowUnix() - s.at < DEDUP_WINDOW_S || nowUnix() < 1700000000;
   return false;
 }
 
-// Decide which replayed notifications are genuinely new: anything with a UID
-// above the last one we handled arrived while the link was down. On the very
-// first connection we only record the high-water mark (no flood of old ones).
-static void resolveReplay() {
-  bool known = prefs.isKey("lastuid");
-  uint32_t last = prefs.getUInt("lastuid", 0), burstMax = 0;
-  std::sort(replayBurst.begin(), replayBurst.end());
-  size_t caughtUp = 0;
-  for (uint32_t uid : replayBurst) {
-    burstMax = max(burstMax, uid);
-    if (known && uid > last && xQueueSend(uidQueue, &uid, 0) == pdTRUE) caughtUp++;
-  }
-  stats.skippedPreExisting += replayBurst.size() - caughtUp;
-  if (!known || burstMax > last) prefs.putUInt("lastuid", max(last, burstMax));
-  logf("Reconnect replay: %u existing, %u new while disconnected", (unsigned)replayBurst.size(),
-       (unsigned)caughtUp);
-  replayBurst.clear();
+static void markSeen(uint32_t uid) {
+  seen[seenPos] = {uid, nowUnix()};
+  seenPos = (seenPos + 1) % SEEN_SLOTS;
+  prefs.putBytes("seen", seen, sizeof(seen));
+  prefs.putUChar("seenpos", seenPos);
 }
 
 static void fetchAndQueue(uint32_t uid) {
-  if (!controlPoint || seenRecently(uid)) return;
-  prefs.putUInt("lastuid", uid);  // live UIDs can restart low after an iPhone reboot
+  if (!controlPoint) return;
+  if (seenRecently(uid)) {
+    stats.skippedDuplicate++;
+    return;
+  }
 
   portENTER_CRITICAL(&dsLock);
   dsLen = 0;
@@ -342,7 +349,7 @@ static void fetchAndQueue(uint32_t uid) {
     return;
   }
 
-  String attrs[4];
+  String attrs[N_ATTRS];
   uint32_t start = millis();
   while (millis() - start < ATTR_TIMEOUT_MS) {
     uint8_t copy[sizeof(dsBuf)];
@@ -360,6 +367,7 @@ static void fetchAndQueue(uint32_t uid) {
     return;
   }
 
+  markSeen(uid);
   for (auto* ignored : IGNORED_APPS)
     if (attrs[ATTR_APP_ID] == ignored) return;
 
@@ -440,7 +448,8 @@ static void addCommon(JsonDocument& doc) {
   w["dry_run_skipped"] = stats.dryRun;
   w["post_failures"] = stats.postFailures;
   w["attr_timeouts"] = stats.attrTimeouts;
-  w["skipped_pre_existing"] = stats.skippedPreExisting;
+  w["skipped_duplicate"] = stats.skippedDuplicate;
+  w["resubscribes"] = stats.resubscribes;
   w["connects"] = stats.connects;
   w["disconnects"] = stats.disconnects;
   w["reboots_for_disconnect"] = rebootsForDisconnect;
@@ -588,10 +597,11 @@ void setup() {
   Serial.begin(115200);
   if (esp_reset_reason() == ESP_RST_POWERON) rebootsForDisconnect = 0;
   logLock = xSemaphoreCreateMutex();
-  uidQueue = xQueueCreate(32, sizeof(uint32_t));
-  preExistingQueue = xQueueCreate(64, sizeof(uint32_t));
+  uidQueue = xQueueCreate(64, sizeof(uint32_t));
   prefs.begin("sift-ancs", false);
   forwardEnabled = prefs.getBool("forward", false);
+  seenPos = prefs.getUChar("seenpos", 0) % SEEN_SLOTS;
+  prefs.getBytes("seen", seen, sizeof(seen));
 
   logf("Sift ANCS bridge %s starting (forwarding %s)", FW_VERSION, forwardEnabled ? "ON" : "OFF");
   startWifi();
@@ -625,8 +635,6 @@ void loop() {
       // iOS defaults to a ~0.7s supervision timeout, too tight while WiFi shares
       // the radio. Ask for 30-60ms interval, 5s timeout (within Apple's limits).
       bleServer->updateConnParams(connHandle, 24, 48, 0, 500);
-      replayBurst.clear();
-      replayDeadlineMs = millis() + REPLAY_WINDOW_MS;
     } else if (phoneConnected) {
       bleServer->disconnect(connHandle);  // iOS reconnects and we retry
     }
@@ -634,17 +642,26 @@ void loop() {
   }
 
   uint32_t uid;
-  while (xQueueReceive(preExistingQueue, &uid, 0) == pdTRUE) replayBurst.push_back(uid);
-  if (replayDeadlineMs && millis() > replayDeadlineMs) {
-    replayDeadlineMs = 0;
-    resolveReplay();
-  }
-  if (ancsReady && !replayDeadlineMs && xQueueReceive(uidQueue, &uid, 0) == pdTRUE) fetchAndQueue(uid);
+  if (ancsReady && xQueueReceive(uidQueue, &uid, 0) == pdTRUE) fetchAndQueue(uid);
 
   processOutbox();
   kumaHeartbeat();
 
-  // Self-healing (replaces the Pi's connection/staleness watchdogs).
+  // Self-healing - the Pi's three watchdogs:
+  // 1. connected but silent for 15 min -> re-subscribe (Pi: restart ancs4linux-observer)
+  if (ancsReady && secondsSince(lastActivityMs) > STALE_THRESHOLD_S) {
+    logf("No notifications for %us - re-subscribing to ANCS", STALE_THRESHOLD_S);
+    stats.resubscribes++;
+    ancsReady = setupAncs();
+    if (!ancsReady) bleServer->disconnect(connHandle);
+    lastActivityMs = millis();
+  }
+  // 2. disconnected -> refresh advertising every 5 min (Pi: ble-reconnect-watchdog)
+  if (!phoneConnected && millis() - lastAdvRefreshMs > ADV_REFRESH_MS) {
+    lastAdvRefreshMs = millis();
+    startAdvertising(true);
+  }
+  // 3. disconnected for 30 min -> full restart (Pi: restart the Bluetooth stack)
   if (!ancsReady && secondsSince(lastConnectedMs) > DISCONNECT_REBOOT_S) {
     logf("No iPhone for %us - rebooting", DISCONNECT_REBOOT_S);
     rebootsForDisconnect++;
