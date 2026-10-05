@@ -17,6 +17,7 @@ Any **classic ESP32** board (ESP32-WROOM-32 / DevKitC style, 4 MB flash). Tested
 | `GET :8081/logs` | Recent log lines (used by the Sift debug page) |
 | `GET :8081/status` | Extra detail: advertising, bonds, WiFi RSSI, free heap |
 | `POST :8081/reset` | Reboot. Replaces the SSH-based `RESET` command. `?bonds=1` also forgets the paired iPhone |
+| `POST :8081/bletest?min=10` | Diagnostic: run Bluetooth with WiFi off for N minutes (board unreachable meanwhile; notifications are held and sent afterwards). Results in `/logs` |
 | `POST :8081/forward?on=1` | Turn forwarding on or off (saved across reboots). **Off by default**, so a new board can run next to the old bridge without double-sending |
 | Uptime Kuma | Push heartbeat every 60 s while the iPhone is connected |
 
@@ -37,10 +38,13 @@ It also reboots after 5 minutes without WiFi, or if the main loop stalls.
 
 ### iPhone link
 
-With Bluetooth LE, only the iPhone can start a connection, so after a drop the bridge advertises and waits. Two settings keep the link steady on a board where WiFi and Bluetooth share one radio:
+With Bluetooth LE, only the iPhone can start a connection, so after a drop the bridge advertises and waits.
 
-- It asks iOS for a 5 s link timeout (60 ms interval). The iOS default of ~0.7 s caused drops every 10–40 s.
-- It re-advertises fast after a drop. iOS usually reconnects within 2–7 s.
+A classic ESP32 has **one radio shared between WiFi and Bluetooth**, and that, not range, power or AirPods, was behind the dropped links. In a 10-minute WiFi-off test the link held with 0 drops; with WiFi on it dropped every few seconds and iOS eventually gave up reconnecting. The Pi Zero's combo chip shares its radio the same way, which is likely why it dropped ~20 times an hour too. Three settings fix it:
+
+- **WiFi max modem sleep.** WiFi wakes only every ~300 ms and leaves the radio to Bluetooth in between. This is the one that matters: 0 drops in 15 minutes with WiFi on, and `/health` still answers within about 1 s.
+- **A 5 s link timeout (60 ms interval)**, requested as soon as the phone connects, so pairing and setup don't run on iOS's ~0.7 s default.
+- **Fast re-advertising after a drop.** iOS usually reconnects within a few seconds.
 
 After a long absence (you were out of the house), iOS can stop reconnecting by itself. In that case tap **Sift ANCS** in Settings → Bluetooth.
 

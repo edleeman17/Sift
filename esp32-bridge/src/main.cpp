@@ -25,6 +25,7 @@
 #include <WiFiClientSecure.h>
 #include <WiFiManager.h>
 #include <esp_coexist.h>
+#include <esp_wifi.h>
 #include <time.h>
 
 #include <algorithm>
@@ -33,7 +34,7 @@
 
 #include "config.h"
 
-#define FW_VERSION "1.4.1"
+#define FW_VERSION "1.4.5"
 
 // --- Tunables (same values as the Pi bridge) ---------------------------------
 static const uint32_t STALE_THRESHOLD_S = 900;        // "degraded" after 15 min of silence
@@ -123,6 +124,12 @@ struct Seen {
 static Seen seen[SEEN_SLOTS];
 static uint8_t seenPos = 0;
 static uint32_t lastAdvRefreshMs = 0;
+
+// Diagnostic: POST /bletest?min=N runs Bluetooth with WiFi off, to tell
+// shared-radio starvation apart from the phone/room dropping the link.
+static uint32_t bleTestMinutes = 0;  // pending start
+static uint32_t bleTestUntilMs = 0;  // running
+static uint32_t bleTestConnects = 0, bleTestDrops = 0;
 
 static struct {
   uint32_t forwarded = 0, dryRun = 0, postFailures = 0, skippedDuplicate = 0,
@@ -216,6 +223,10 @@ class ServerCallbacks : public NimBLEServerCallbacks {
     connHandle = info.getConnHandle();
     lastConnectedMs = millis();
     stats.connects++;
+    // Ask for the 5 s supervision timeout straight away: pairing and ANCS
+    // discovery otherwise run on iOS's ~0.7 s default, and with WiFi sharing
+    // the radio the link can die mid-setup (iOS then stops retrying).
+    server->updateConnParams(info.getConnHandle(), 24, 48, 0, 500);
     // Pairs the first time (iPhone shows a prompt), re-encrypts with the bond after.
     NimBLEDevice::startSecurity(info.getConnHandle());
   }
@@ -528,6 +539,16 @@ static void handleReset() {
   ESP.restart();
 }
 
+static void handleBleTest() {
+  uint32_t mins = web.hasArg("min") ? web.arg("min").toInt() : 10;
+  bleTestMinutes = constrain(mins, 1, 30);
+  JsonDocument doc;
+  doc["ok"] = true;
+  doc["wifi_off_minutes"] = bleTestMinutes;
+  doc["note"] = "board unreachable until the test ends; results in /logs afterwards";
+  sendJson(200, doc);
+}
+
 static void handleForward() {
   if (web.hasArg("on")) {
     forwardEnabled = web.arg("on") == "1";
@@ -568,6 +589,15 @@ static void startBle() {
   logf("BLE advertising as '%s' (%d bonded device(s))", BLE_NAME, NimBLEDevice::getNumBonds());
 }
 
+// WiFi and Bluetooth share this chip's one radio, and with WiFi in its default
+// light sleep the iPhone link starved and dropped every few seconds (0 drops
+// in a WiFi-off test). Max modem sleep wakes WiFi only every ~300 ms
+// (listen interval 3 beacons), leaving the radio to Bluetooth in between.
+// Sends are unaffected; incoming requests wait up to ~0.3 s at the router.
+static void wifiPowerSave() {
+  if (esp_wifi_set_ps(WIFI_PS_MAX_MODEM) == ESP_OK) logf("WiFi power save: max modem");
+}
+
 static void startWifi() {
   WiFi.mode(WIFI_STA);
   WiFiManager wm;
@@ -582,6 +612,7 @@ static void startWifi() {
   }
   WiFi.setAutoReconnect(true);
   logf("WiFi connected: %s, RSSI %d", WiFi.localIP().toString().c_str(), WiFi.RSSI());
+  wifiPowerSave();
 }
 
 static void softwareWatchdog(void*) {
@@ -617,6 +648,7 @@ void setup() {
   web.on("/status", HTTP_GET, handleStatus);
   web.on("/reset", HTTP_POST, handleReset);
   web.on("/forward", HTTP_POST, handleForward);
+  web.on("/bletest", HTTP_POST, handleBleTest);
   web.begin();
 
   startBle();
@@ -669,7 +701,27 @@ void loop() {
     delay(200);
     ESP.restart();
   }
-  if (WiFi.status() != WL_CONNECTED) {
+  if (bleTestMinutes) {
+    logf("BLE-only test: WiFi off for %u min (iPhone link %s)", bleTestMinutes, ancsReady ? "up" : "down");
+    bleTestConnects = stats.connects;
+    bleTestDrops = stats.disconnects;
+    bleTestUntilMs = millis() + bleTestMinutes * 60000;
+    bleTestMinutes = 0;
+    delay(300);  // let the HTTP reply go out
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+  }
+  if (bleTestUntilMs && (int32_t)(millis() - bleTestUntilMs) >= 0) {
+    bleTestUntilMs = 0;
+    WiFi.mode(WIFI_STA);
+    WiFi.config(IPAddress(STATIC_IP), IPAddress(GATEWAY_IP), IPAddress(SUBNET_MASK), IPAddress(DNS_IP));
+    WiFi.begin();  // credentials saved by WiFiManager
+    wifiPowerSave();
+    wifiDownSinceMs = 0;
+    logf("BLE-only test done: %u connects, %u drops while WiFi was off; link now %s",
+         stats.connects - bleTestConnects, stats.disconnects - bleTestDrops, ancsReady ? "up" : "down");
+  }
+  if (WiFi.status() != WL_CONNECTED && !bleTestUntilMs) {
     if (!wifiDownSinceMs) wifiDownSinceMs = millis();
     if (secondsSince(wifiDownSinceMs) > WIFI_DOWN_REBOOT_S) ESP.restart();
   } else {
@@ -684,7 +736,8 @@ void loop() {
     if (millis() - lastRssiPollMs > 10000) {
       lastRssiPollMs = millis();
       int8_t rssi;
-      if (ble_gap_conn_rssi(connHandle, &rssi) == 0) lastRssi = rssi;
+      // -128/127 = "no reading" (e.g. the poll landed in a WiFi slot); keep the last real one
+      if (ble_gap_conn_rssi(connHandle, &rssi) == 0 && rssi > -127 && rssi < 20) lastRssi = rssi;
     }
   }
 
